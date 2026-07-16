@@ -4,7 +4,8 @@ const panelState = {
   session: null,
   profile: null,
   orders: [],
-  currentView: null
+  currentView: null,
+  activeOrderFilter: "todos"
 };
 
 const VIEW_NAMES = {
@@ -22,9 +23,6 @@ document.addEventListener("DOMContentLoaded", initializePanel);
 /**
  * Inicializa el panel administrativo.
  *
- * Valida la sesión, obtiene el perfil del usuario, configura la interfaz
- * y carga la vista inicial del Dashboard.
- *
  * @returns {Promise<void>}
  */
 async function initializePanel() {
@@ -34,42 +32,43 @@ async function initializePanel() {
   }
 
   if (!window.toscanaViewLoader) {
-    fatal("No se cargó el administrador de vistas del panel.");
+    fatal("No se cargó el administrador de vistas.");
     return;
   }
 
   try {
-    const { data, error } =
-      await window.toscanaSupabase.auth.getSession();
+    const {
+      data: sessionData,
+      error: sessionError
+    } = await window.toscanaSupabase.auth.getSession();
 
-    if (error) {
-      throw error;
+    if (sessionError) {
+      throw sessionError;
     }
 
-    if (!data.session?.user) {
+    if (!sessionData.session?.user) {
       redirectToLogin();
       return;
     }
 
-    panelState.session = data.session;
+    panelState.session = sessionData.session;
 
-    const profileResponse = await window.toscanaSupabase
+    const {
+      data: profile,
+      error: profileError
+    } = await window.toscanaSupabase
       .from("perfiles")
       .select("id,nombre_completo,rol,activo")
-      .eq("id", data.session.user.id)
+      .eq("id", sessionData.session.user.id)
       .single();
 
-    if (
-      profileResponse.error ||
-      !profileResponse.data ||
-      !profileResponse.data.activo
-    ) {
+    if (profileError || !profile || !profile.activo) {
       await window.toscanaSupabase.auth.signOut();
       redirectToLogin();
       return;
     }
 
-    panelState.profile = profileResponse.data;
+    panelState.profile = profile;
 
     setupStaticUI();
     setupStaticEvents();
@@ -90,41 +89,47 @@ async function initializePanel() {
 }
 
 /**
- * Configura los elementos permanentes del panel.
+ * Configura la información permanente del usuario.
  */
 function setupStaticUI() {
   const profile = panelState.profile;
 
-  const userName = document.querySelector("#user-name");
-  const userRole = document.querySelector("#user-role");
-  const userAvatar = document.querySelector("#user-avatar");
-
-  userName.textContent =
+  const displayName =
     profile.nombre_completo ||
     panelState.session?.user?.email ||
     "Usuario";
 
-  userRole.textContent = pretty(profile.rol);
+  document.querySelector("#user-name").textContent =
+    displayName;
 
-  userAvatar.textContent = getInitials(
-    profile.nombre_completo ||
-    panelState.session?.user?.email ||
-    "TG"
-  );
+  document.querySelector("#user-role").textContent =
+    pretty(profile.rol);
+
+  document.querySelector("#user-avatar").textContent =
+    getInitials(displayName);
 }
 
 /**
- * Configura los eventos de los elementos permanentes del panel.
+ * Configura los eventos permanentes del panel.
  */
 function setupStaticEvents() {
-  const logoutButton = document.querySelector("#logout-button");
-  const sidebarToggle = document.querySelector("#sidebar-toggle");
-  const sidebar = document.querySelector("#sidebar");
-  const overlay = document.querySelector("#sidebar-overlay");
-  const closeOrderDialog = document.querySelector(
-    "#close-order-dialog"
-  );
-  const orderDialog = document.querySelector("#order-dialog");
+  const logoutButton =
+    document.querySelector("#logout-button");
+
+  const sidebarToggle =
+    document.querySelector("#sidebar-toggle");
+
+  const sidebar =
+    document.querySelector("#sidebar");
+
+  const overlay =
+    document.querySelector("#sidebar-overlay");
+
+  const orderDialog =
+    document.querySelector("#order-dialog");
+
+  const closeOrderDialog =
+    document.querySelector("#close-order-dialog");
 
   logoutButton.addEventListener("click", logout);
 
@@ -135,18 +140,20 @@ function setupStaticEvents() {
 
   overlay.addEventListener("click", closeSidebar);
 
-  document.querySelectorAll(".nav-item").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const viewName = button.dataset.view;
+  document
+    .querySelectorAll(".nav-item")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        const viewName = button.dataset.view;
 
-      if (!viewName) {
-        return;
-      }
+        if (!viewName) {
+          return;
+        }
 
-      await navigateToView(viewName);
-      closeSidebar();
+        await navigateToView(viewName);
+        closeSidebar();
+      });
     });
-  });
 
   closeOrderDialog.addEventListener("click", () => {
     if (orderDialog.open) {
@@ -168,23 +175,26 @@ function setupStaticEvents() {
 }
 
 /**
- * Oculta las opciones del menú que no corresponden al rol actual.
+ * Oculta módulos que no corresponden al rol actual.
  */
 function applyRolePermissions() {
-  const userRole = panelState.profile.rol;
+  const currentRole = panelState.profile.rol;
 
-  document.querySelectorAll("[data-roles]").forEach((element) => {
-    const allowedRoles = element.dataset.roles
-      .split(",")
-      .map((role) => role.trim())
-      .filter(Boolean);
+  document
+    .querySelectorAll("[data-roles]")
+    .forEach((element) => {
+      const allowedRoles = element.dataset.roles
+        .split(",")
+        .map((role) => role.trim())
+        .filter(Boolean);
 
-    element.hidden = !allowedRoles.includes(userRole);
-  });
+      element.hidden =
+        !allowedRoles.includes(currentRole);
+    });
 }
 
 /**
- * Navega entre los módulos del panel.
+ * Navega entre las vistas del panel.
  *
  * @param {string} viewName
  * @returns {Promise<void>}
@@ -203,70 +213,78 @@ async function navigateToView(viewName) {
   setActiveNavigationItem(viewName);
   setPageTitle(viewName);
 
-  if (viewName === "dashboard") {
-    await loadDashboardView();
-    return;
-  }
+  switch (viewName) {
+    case "dashboard":
+      await loadDashboardView();
+      break;
 
-  renderPendingModule(viewName);
+    case "pedidos":
+      await loadOrdersView();
+      break;
+
+    default:
+      renderPendingModule(viewName);
+      break;
+  }
 }
 
 /**
- * Verifica si el rol actual puede abrir una vista.
+ * Comprueba si la vista está autorizada para el rol actual.
  *
  * @param {string} viewName
  * @returns {boolean}
  */
 function isViewAllowed(viewName) {
-  const navigationButton = document.querySelector(
+  const button = document.querySelector(
     `.nav-item[data-view="${escapeSelector(viewName)}"]`
   );
 
-  if (!navigationButton) {
+  if (!button || button.hidden) {
     return false;
   }
 
-  if (!navigationButton.dataset.roles) {
+  if (!button.dataset.roles) {
     return true;
   }
 
-  const allowedRoles = navigationButton.dataset.roles
+  const allowedRoles = button.dataset.roles
     .split(",")
     .map((role) => role.trim())
     .filter(Boolean);
 
-  return allowedRoles.includes(panelState.profile.rol);
+  return allowedRoles.includes(
+    panelState.profile.rol
+  );
 }
 
 /**
- * Marca la opción seleccionada dentro del menú lateral.
+ * Marca el botón activo del menú lateral.
  *
  * @param {string} viewName
  */
 function setActiveNavigationItem(viewName) {
-  document.querySelectorAll(".nav-item").forEach((button) => {
-    button.classList.toggle(
-      "active",
-      button.dataset.view === viewName
-    );
-  });
+  document
+    .querySelectorAll(".nav-item")
+    .forEach((button) => {
+      button.classList.toggle(
+        "active",
+        button.dataset.view === viewName
+      );
+    });
 }
 
 /**
- * Actualiza el título superior del módulo.
+ * Actualiza el título superior.
  *
  * @param {string} viewName
  */
 function setPageTitle(viewName) {
-  const pageTitle = document.querySelector("#page-title");
-
-  pageTitle.textContent =
-    VIEW_NAMES[viewName] ||
-    "Módulo";
+  document.querySelector("#page-title").textContent =
+    VIEW_NAMES[viewName] || "Módulo";
 }
 
 /**
- * Carga la vista HTML del Dashboard y después inicializa sus eventos.
+ * Carga la vista dinámica del Dashboard.
  *
  * @returns {Promise<void>}
  */
@@ -275,9 +293,10 @@ async function loadDashboardView() {
 
   await window.toscanaViewLoader.load("dashboard");
 
-  const dashboardView = document.querySelector("#view-dashboard");
+  const dashboard =
+    document.querySelector("#view-dashboard");
 
-  if (!dashboardView) {
+  if (!dashboard) {
     showMessage(
       "La vista del Dashboard no se cargó correctamente."
     );
@@ -292,63 +311,42 @@ async function loadDashboardView() {
 }
 
 /**
- * Configura los textos iniciales del Dashboard.
+ * Configura los datos iniciales del Dashboard.
  */
 function setupDashboardUI() {
-  const currentDate = document.querySelector("#current-date");
+  const currentDate =
+    document.querySelector("#current-date");
 
-  if (currentDate) {
-    currentDate.textContent = new Intl.DateTimeFormat(
-      "es-EC",
-      {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric"
-      }
-    ).format(new Date());
+  if (!currentDate) {
+    return;
   }
+
+  currentDate.textContent =
+    new Intl.DateTimeFormat("es-EC", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric"
+    }).format(new Date());
 }
 
 /**
- * Configura los eventos internos del Dashboard.
+ * Configura los eventos del Dashboard.
  */
 function setupDashboardEvents() {
-  const refreshButton = document.querySelector(
-    "#refresh-dashboard"
-  );
+  const refreshButton =
+    document.querySelector("#refresh-dashboard");
 
   if (refreshButton) {
-    refreshButton.addEventListener("click", loadDashboard);
+    refreshButton.addEventListener(
+      "click",
+      loadDashboard
+    );
   }
 }
 
 /**
- * Renderiza una vista temporal para los módulos todavía no implementados.
- *
- * @param {string} viewName
- */
-function renderPendingModule(viewName) {
-  panelState.currentView = viewName;
-
-  const container = document.querySelector("#view-container");
-  const moduleName = VIEW_NAMES[viewName] || "Módulo";
-
-  container.innerHTML = `
-    <section class="panel-view active">
-      <div class="content-card placeholder-card">
-        <h2>${escapeHTML(moduleName)}</h2>
-        <p>
-          Este módulo está preparado para su implementación
-          incremental.
-        </p>
-      </div>
-    </section>
-  `;
-}
-
-/**
- * Recarga indicadores y pedidos activos.
+ * Carga indicadores y pedidos del Dashboard.
  *
  * @returns {Promise<void>}
  */
@@ -359,35 +357,48 @@ async function loadDashboard() {
 
   clearMessage();
 
-  const refreshButton = document.querySelector(
-    "#refresh-dashboard"
+  const refreshButton =
+    document.querySelector("#refresh-dashboard");
+
+  setButtonLoading(
+    refreshButton,
+    true,
+    "Actualizando…"
   );
 
-  if (refreshButton) {
-    refreshButton.disabled = true;
-    refreshButton.textContent = "Actualizando…";
-  }
-
   try {
-    await Promise.all([
-      loadSummary(),
-      loadOrders()
-    ]);
-  } finally {
-    if (refreshButton) {
-      refreshButton.disabled = false;
-      refreshButton.textContent = "Actualizar";
+    if (
+      ["administrador", "caja"].includes(
+        panelState.profile.rol
+      )
+    ) {
+      await Promise.all([
+        loadSummary(),
+        loadDashboardOrders()
+      ]);
+    } else {
+      resetRestrictedSummary();
+      await loadDashboardOrders();
     }
+  } finally {
+    setButtonLoading(
+      refreshButton,
+      false,
+      "Actualizar"
+    );
   }
 }
 
 /**
- * Carga los indicadores diarios del Dashboard.
+ * Carga el resumen diario.
  *
  * @returns {Promise<void>}
  */
 async function loadSummary() {
-  const { data, error } = await window.toscanaSupabase.rpc(
+  const {
+    data,
+    error
+  } = await window.toscanaSupabase.rpc(
     "resumen_diario",
     {
       p_fecha: null
@@ -401,66 +412,308 @@ async function loadSummary() {
     );
 
     showMessage(
-      "No fue posible cargar los indicadores del Dashboard."
+      "No fue posible cargar los indicadores."
     );
 
     return;
   }
 
-  setTextContent(
+  setText(
     "#metric-active-orders",
     data?.pedidos_activos ?? 0
   );
 
-  setTextContent(
+  setText(
     "#metric-total-orders",
     data?.total_pedidos ?? 0
   );
 
-  setTextContent(
+  setText(
     "#metric-sales",
     money(data?.ventas_generadas)
   );
 
-  setTextContent(
+  setText(
     "#metric-paid",
     money(data?.total_pagado)
   );
 }
 
 /**
- * Carga los pedidos activos.
+ * Evita errores de autorización en cocina o mesero.
+ */
+function resetRestrictedSummary() {
+  setText("#metric-active-orders", "—");
+  setText("#metric-total-orders", "—");
+  setText("#metric-sales", "Restringido");
+  setText("#metric-paid", "Restringido");
+}
+
+/**
+ * Carga los pedidos activos del Dashboard.
  *
  * @returns {Promise<void>}
  */
-async function loadOrders() {
-  const loading = document.querySelector("#orders-loading");
-  const empty = document.querySelector("#orders-empty");
-  const list = document.querySelector("#orders-list");
-  const count = document.querySelector("#orders-count");
+async function loadDashboardOrders() {
+  const loading =
+    document.querySelector("#orders-loading");
+
+  const empty =
+    document.querySelector("#orders-empty");
+
+  const list =
+    document.querySelector("#orders-list");
+
+  const count =
+    document.querySelector("#orders-count");
 
   if (!loading || !empty || !list || !count) {
     showMessage(
-      "La estructura del listado de pedidos no está disponible."
+      "La estructura del Dashboard está incompleta."
     );
 
     return;
   }
 
-  loading.hidden = false;
-  empty.hidden = true;
-  list.innerHTML = "";
-  count.textContent = "0";
+  setOrdersLoadingState({
+    loading,
+    empty,
+    list,
+    count
+  });
 
-  const { data, error } = await window.toscanaSupabase.rpc(
-    "listar_pedidos_activos"
-  );
+  const orders = await fetchActiveOrders();
 
   loading.hidden = true;
 
+  if (orders === null) {
+    return;
+  }
+
+  count.textContent = String(orders.length);
+
+  if (orders.length === 0) {
+    empty.hidden = false;
+    return;
+  }
+
+  list.innerHTML = orders
+    .map(createOrderCard)
+    .join("");
+
+  attachOrderCardEvents(list);
+}
+
+/**
+ * Carga la vista dinámica de Pedidos activos.
+ *
+ * @returns {Promise<void>}
+ */
+async function loadOrdersView() {
+  panelState.currentView = "pedidos";
+  panelState.activeOrderFilter = "todos";
+
+  await window.toscanaViewLoader.load("pedidos");
+
+  const ordersView =
+    document.querySelector("#view-pedidos");
+
+  if (!ordersView) {
+    showMessage(
+      "La vista de Pedidos activos no se cargó correctamente."
+    );
+
+    return;
+  }
+
+  setupOrdersViewEvents();
+
+  await loadActiveOrdersModule();
+}
+
+/**
+ * Configura los eventos de la vista Pedidos.
+ */
+function setupOrdersViewEvents() {
+  const refreshButton =
+    document.querySelector("#refresh-orders");
+
+  if (refreshButton) {
+    refreshButton.addEventListener(
+      "click",
+      loadActiveOrdersModule
+    );
+  }
+
+  document
+    .querySelectorAll("[data-order-filter]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const filter =
+          button.dataset.orderFilter || "todos";
+
+        panelState.activeOrderFilter = filter;
+
+        document
+          .querySelectorAll("[data-order-filter]")
+          .forEach((filterButton) => {
+            filterButton.classList.toggle(
+              "active",
+              filterButton === button
+            );
+          });
+
+        renderActiveOrders();
+      });
+    });
+}
+
+/**
+ * Consulta y presenta los pedidos del módulo.
+ *
+ * @returns {Promise<void>}
+ */
+async function loadActiveOrdersModule() {
+  if (panelState.currentView !== "pedidos") {
+    return;
+  }
+
+  clearMessage();
+
+  const refreshButton =
+    document.querySelector("#refresh-orders");
+
+  const loading =
+    document.querySelector(
+      "#active-orders-loading"
+    );
+
+  const empty =
+    document.querySelector(
+      "#active-orders-empty"
+    );
+
+  const list =
+    document.querySelector(
+      "#active-orders-list"
+    );
+
+  const count =
+    document.querySelector(
+      "#active-orders-count"
+    );
+
+  if (
+    !loading ||
+    !empty ||
+    !list ||
+    !count
+  ) {
+    showMessage(
+      "La estructura del módulo de pedidos está incompleta."
+    );
+
+    return;
+  }
+
+  setButtonLoading(
+    refreshButton,
+    true,
+    "Actualizando…"
+  );
+
+  setOrdersLoadingState({
+    loading,
+    empty,
+    list,
+    count
+  });
+
+  try {
+    const orders = await fetchActiveOrders();
+
+    loading.hidden = true;
+
+    if (orders === null) {
+      return;
+    }
+
+    renderActiveOrders();
+  } finally {
+    setButtonLoading(
+      refreshButton,
+      false,
+      "Actualizar"
+    );
+  }
+}
+
+/**
+ * Filtra y renderiza los pedidos activos.
+ */
+function renderActiveOrders() {
+  const empty =
+    document.querySelector(
+      "#active-orders-empty"
+    );
+
+  const list =
+    document.querySelector(
+      "#active-orders-list"
+    );
+
+  const count =
+    document.querySelector(
+      "#active-orders-count"
+    );
+
+  if (!empty || !list || !count) {
+    return;
+  }
+
+  const filteredOrders =
+    panelState.activeOrderFilter === "todos"
+      ? panelState.orders
+      : panelState.orders.filter(
+          (order) =>
+            order.estado ===
+            panelState.activeOrderFilter
+        );
+
+  count.textContent =
+    String(filteredOrders.length);
+
+  empty.hidden =
+    filteredOrders.length > 0;
+
+  if (filteredOrders.length === 0) {
+    list.innerHTML = "";
+    return;
+  }
+
+  list.innerHTML = filteredOrders
+    .map(createOrderCard)
+    .join("");
+
+  attachOrderCardEvents(list);
+}
+
+/**
+ * Consulta los pedidos activos en Supabase.
+ *
+ * @returns {Promise<Array<object>|null>}
+ */
+async function fetchActiveOrders() {
+  const {
+    data,
+    error
+  } = await window.toscanaSupabase.rpc(
+    "listar_pedidos_activos"
+  );
+
   if (error) {
     console.error(
-      "Error al cargar los pedidos activos:",
+      "Error al cargar pedidos activos:",
       error
     );
 
@@ -468,83 +721,107 @@ async function loadOrders() {
       "No fue posible cargar los pedidos activos."
     );
 
-    return;
+    return null;
   }
 
-  panelState.orders = Array.isArray(data)
-    ? data
-    : [];
+  panelState.orders =
+    Array.isArray(data)
+      ? data
+      : [];
 
-  count.textContent = String(panelState.orders.length);
-
-  if (panelState.orders.length === 0) {
-    empty.hidden = false;
-    return;
-  }
-
-  list.innerHTML = panelState.orders
-    .map(createOrderCard)
-    .join("");
-
-  list.querySelectorAll(".order-card").forEach((card) => {
-    card.addEventListener("click", () => {
-      const orderId = card.dataset.id;
-
-      if (orderId) {
-        openOrder(orderId);
-      }
-    });
-  });
+  return panelState.orders;
 }
 
 /**
- * Genera el HTML de una tarjeta de pedido.
+ * Prepara el estado visual de carga de pedidos.
+ *
+ * @param {object} elements
+ */
+function setOrdersLoadingState({
+  loading,
+  empty,
+  list,
+  count
+}) {
+  loading.hidden = false;
+  empty.hidden = true;
+  list.innerHTML = "";
+  count.textContent = "0";
+}
+
+/**
+ * Genera la tarjeta HTML de un pedido.
  *
  * @param {object} order
  * @returns {string}
  */
 function createOrderCard(order) {
-  const orderId = escapeHTML(order.id);
-  const ticket = escapeHTML(order.ticket || "Sin ticket");
-  const location = escapeHTML(
-    order.mesa_nombre ||
-    pretty(order.tipo) ||
-    "Sin ubicación"
-  );
-  const status = escapeHTML(pretty(order.estado));
-  const items = Number(order.cantidad_items || 0);
-  const total = money(order.total);
+  const orderId =
+    order.pedido_id || "";
+
+  const ticket =
+    order.ticket || "Sin ticket";
+
+  const location =
+    getOrderLocation(order);
+
+  const customer =
+    order.cliente_nombre
+      ? escapeHTML(order.cliente_nombre)
+      : "";
+
+  const elapsedTime =
+    getElapsedTime(order.creado_en);
 
   return `
     <article
       class="order-card"
-      data-id="${orderId}"
+      data-id="${escapeHTML(orderId)}"
       tabindex="0"
       role="button"
-      aria-label="Abrir pedido ${ticket}"
+      aria-label="Abrir pedido ${escapeHTML(ticket)}"
     >
       <div class="order-card-header">
         <div>
-          <strong>${ticket}</strong>
-          <span>${location}</span>
+          <strong>${escapeHTML(ticket)}</strong>
+          <span>${escapeHTML(location)}</span>
         </div>
 
-        <span class="status-badge status-${escapeHTML(
-          order.estado
-        )}">
-          ${status}
+        <span
+          class="status-badge status-${escapeHTML(
+            order.estado
+          )}"
+        >
+          ${escapeHTML(pretty(order.estado))}
         </span>
       </div>
+
+      ${
+        customer
+          ? `
+            <p class="order-customer">
+              Cliente: ${customer}
+            </p>
+          `
+          : ""
+      }
 
       <div class="order-card-body">
         <div>
           <span>Productos</span>
-          <strong>${items}</strong>
+          <strong>
+            ${Number(order.cantidad_items || 0)}
+          </strong>
         </div>
 
         <div>
           <span>Total</span>
-          <strong>${total}</strong>
+          <strong>${money(order.total)}</strong>
+        </div>
+
+        <div>
+          <span>Tiempo</span>
+          <strong>${escapeHTML(elapsedTime)}</strong>
         </div>
       </div>
     </article>
@@ -552,16 +829,128 @@ function createOrderCard(order) {
 }
 
 /**
- * Abre el detalle de un pedido.
+ * Agrega eventos de apertura a las tarjetas.
+ *
+ * @param {HTMLElement} container
+ */
+function attachOrderCardEvents(container) {
+  container
+    .querySelectorAll(".order-card")
+    .forEach((card) => {
+      const openCard = () => {
+        const orderId = card.dataset.id;
+
+        if (orderId) {
+          openOrder(orderId);
+        }
+      };
+
+      card.addEventListener(
+        "click",
+        openCard
+      );
+
+      card.addEventListener(
+        "keydown",
+        (event) => {
+          if (
+            event.key === "Enter" ||
+            event.key === " "
+          ) {
+            event.preventDefault();
+            openCard();
+          }
+        }
+      );
+    });
+}
+
+/**
+ * Determina la ubicación de un pedido.
+ *
+ * @param {object} order
+ * @returns {string}
+ */
+function getOrderLocation(order) {
+  if (order.tipo === "mesa") {
+    if (order.mesa_nombre) {
+      return order.mesa_nombre;
+    }
+
+    if (order.mesa_numero) {
+      return `Mesa ${order.mesa_numero}`;
+    }
+
+    return "Mesa";
+  }
+
+  return pretty(order.tipo) || "Sin ubicación";
+}
+
+/**
+ * Calcula el tiempo transcurrido desde la creación.
+ *
+ * @param {string} createdAt
+ * @returns {string}
+ */
+function getElapsedTime(createdAt) {
+  if (!createdAt) {
+    return "—";
+  }
+
+  const createdDate =
+    new Date(createdAt);
+
+  if (
+    Number.isNaN(createdDate.getTime())
+  ) {
+    return "—";
+  }
+
+  const difference =
+    Date.now() - createdDate.getTime();
+
+  const minutes =
+    Math.max(
+      0,
+      Math.floor(difference / 60000)
+    );
+
+  if (minutes < 1) {
+    return "Ahora";
+  }
+
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+
+  const hours =
+    Math.floor(minutes / 60);
+
+  const remainingMinutes =
+    minutes % 60;
+
+  if (remainingMinutes === 0) {
+    return `${hours} h`;
+  }
+
+  return `${hours} h ${remainingMinutes} min`;
+}
+
+/**
+ * Abre el modal de detalle.
  *
  * @param {string} orderId
  * @returns {Promise<void>}
  */
 async function openOrder(orderId) {
-  const dialog = document.querySelector("#order-dialog");
-  const content = document.querySelector(
-    "#order-detail-content"
-  );
+  const dialog =
+    document.querySelector("#order-dialog");
+
+  const content =
+    document.querySelector(
+      "#order-detail-content"
+    );
 
   content.innerHTML = `
     <div class="section-loading">
@@ -573,7 +962,10 @@ async function openOrder(orderId) {
     dialog.showModal();
   }
 
-  const { data, error } = await window.toscanaSupabase.rpc(
+  const {
+    data,
+    error
+  } = await window.toscanaSupabase.rpc(
     "obtener_detalle_pedido",
     {
       p_pedido_id: orderId
@@ -582,13 +974,16 @@ async function openOrder(orderId) {
 
   if (error) {
     console.error(
-      "Error al cargar el detalle del pedido:",
+      "Error al cargar el pedido:",
       error
     );
 
     content.innerHTML = `
       <div class="empty-state">
-        <strong>No fue posible cargar el pedido.</strong>
+        <strong>
+          No fue posible cargar el pedido.
+        </strong>
+
         <p>${escapeHTML(error.message)}</p>
       </div>
     `;
@@ -596,67 +991,93 @@ async function openOrder(orderId) {
     return;
   }
 
-  content.innerHTML = createOrderDetail(data);
+  content.innerHTML =
+    createOrderDetail(data);
 }
 
 /**
- * Genera el contenido del modal de pedido.
+ * Genera el detalle completo del pedido.
  *
  * @param {object} order
  * @returns {string}
  */
 function createOrderDetail(order) {
-  const details = Array.isArray(order?.detalle)
-    ? order.detalle
-    : [];
+  const details =
+    Array.isArray(order?.detalle)
+      ? order.detalle
+      : [];
 
-  const detailRows = details.length
-    ? details
-        .map((item) => {
-          return `
-            <tr>
-              <td>${escapeHTML(
-                item.producto ||
-                item.nombre_producto ||
-                "Producto"
-              )}</td>
+  const detailRows =
+    details.length > 0
+      ? details
+          .map((item) => {
+            return `
+              <tr>
+                <td>
+                  <strong>
+                    ${escapeHTML(
+                      item.producto ||
+                      "Producto"
+                    )}
+                  </strong>
 
-              <td>${Number(item.cantidad || 0)}</td>
+                  ${
+                    item.observaciones
+                      ? `
+                        <small>
+                          ${escapeHTML(
+                            item.observaciones
+                          )}
+                        </small>
+                      `
+                      : ""
+                  }
+                </td>
 
-              <td>
-                ${money(item.precio_unitario)}
-              </td>
+                <td>
+                  ${Number(item.cantidad || 0)}
+                </td>
 
-              <td>
-                ${money(item.subtotal)}
-              </td>
-            </tr>
-          `;
-        })
-        .join("")
-    : `
-        <tr>
-          <td colspan="4">
-            No existen productos registrados.
-          </td>
-        </tr>
-      `;
+                <td>
+                  ${money(item.precio_unitario)}
+                </td>
+
+                <td>
+                  ${money(item.subtotal)}
+                </td>
+              </tr>
+            `;
+          })
+          .join("")
+      : `
+          <tr>
+            <td colspan="4">
+              No existen productos registrados.
+            </td>
+          </tr>
+        `;
 
   return `
     <div class="order-detail">
       <div class="order-detail-header">
         <div>
           <p>Pedido</p>
-          <h2>${escapeHTML(
-            order?.ticket ||
-            "Sin ticket"
-          )}</h2>
+          <h2>
+            ${escapeHTML(
+              order?.ticket ||
+              "Sin ticket"
+            )}
+          </h2>
         </div>
 
-        <span class="status-badge status-${escapeHTML(
-          order?.estado
-        )}">
-          ${escapeHTML(pretty(order?.estado))}
+        <span
+          class="status-badge status-${escapeHTML(
+            order?.estado
+          )}"
+        >
+          ${escapeHTML(
+            pretty(order?.estado)
+          )}
         </span>
       </div>
 
@@ -665,20 +1086,20 @@ function createOrderDetail(order) {
           <span>Ubicación</span>
           <strong>
             ${escapeHTML(
-              order?.mesa?.nombre ||
-              pretty(order?.tipo) ||
-              "Sin ubicación"
+              getOrderDetailLocation(order)
             )}
           </strong>
         </div>
 
         <div>
           <span>Total</span>
-          <strong>${money(order?.total)}</strong>
+          <strong>
+            ${money(order?.total)}
+          </strong>
         </div>
 
         <div>
-          <span>Estado de pago</span>
+          <span>Pago</span>
           <strong>
             ${escapeHTML(
               pretty(order?.estado_pago)
@@ -708,10 +1129,15 @@ function createOrderDetail(order) {
         order?.observaciones
           ? `
             <div class="order-observations">
-              <span>Observaciones</span>
-              <p>${escapeHTML(
-                order.observaciones
-              )}</p>
+              <span>
+                Observaciones generales
+              </span>
+
+              <p>
+                ${escapeHTML(
+                  order.observaciones
+                )}
+              </p>
             </div>
           `
           : ""
@@ -721,111 +1147,201 @@ function createOrderDetail(order) {
 }
 
 /**
- * Cierra el menú lateral en dispositivos pequeños.
+ * Determina la ubicación desde el detalle RPC.
+ *
+ * @param {object} order
+ * @returns {string}
  */
-function closeSidebar() {
-  const sidebar = document.querySelector("#sidebar");
-  const overlay = document.querySelector("#sidebar-overlay");
+function getOrderDetailLocation(order) {
+  if (order?.tipo === "mesa") {
+    if (order?.mesa?.nombre) {
+      return order.mesa.nombre;
+    }
 
-  sidebar.classList.remove("open");
-  overlay.classList.remove("visible");
+    if (order?.mesa?.numero) {
+      return `Mesa ${order.mesa.numero}`;
+    }
+
+    return "Mesa";
+  }
+
+  return pretty(order?.tipo) || "Sin ubicación";
 }
 
 /**
- * Cierra la sesión actual.
+ * Muestra temporalmente un módulo pendiente.
+ *
+ * @param {string} viewName
+ */
+function renderPendingModule(viewName) {
+  panelState.currentView = viewName;
+
+  const container =
+    document.querySelector("#view-container");
+
+  const moduleName =
+    VIEW_NAMES[viewName] || "Módulo";
+
+  container.innerHTML = `
+    <section class="panel-view active">
+      <div class="content-card placeholder-card">
+        <h2>${escapeHTML(moduleName)}</h2>
+
+        <p>
+          Este módulo está preparado para su
+          implementación incremental.
+        </p>
+      </div>
+    </section>
+  `;
+}
+
+/**
+ * Cierra el menú lateral.
+ */
+function closeSidebar() {
+  document
+    .querySelector("#sidebar")
+    .classList.remove("open");
+
+  document
+    .querySelector("#sidebar-overlay")
+    .classList.remove("visible");
+}
+
+/**
+ * Cierra la sesión.
  *
  * @returns {Promise<void>}
  */
 async function logout() {
-  const logoutButton = document.querySelector("#logout-button");
+  const button =
+    document.querySelector("#logout-button");
 
-  logoutButton.disabled = true;
-  logoutButton.textContent = "Cerrando sesión…";
+  setButtonLoading(
+    button,
+    true,
+    "Cerrando sesión…"
+  );
 
   try {
     await window.toscanaSupabase.auth.signOut();
   } catch (error) {
-    console.error("Error al cerrar sesión:", error);
+    console.error(
+      "Error al cerrar sesión:",
+      error
+    );
   } finally {
     redirectToLogin();
   }
 }
 
 /**
- * Redirige al formulario de inicio de sesión.
+ * Redirige al inicio de sesión.
  */
 function redirectToLogin() {
   window.location.replace("./login.html");
 }
 
 /**
- * Muestra un error crítico durante la carga inicial.
+ * Muestra un error crítico.
  *
  * @param {string} message
  */
 function fatal(message) {
-  const loading = document.querySelector("#app-loading");
-
-  loading.innerHTML = `
+  document.querySelector(
+    "#app-loading"
+  ).innerHTML = `
     <div class="fatal-error">
       <h1>No fue posible cargar el panel</h1>
+
       <p>${escapeHTML(message)}</p>
-      <a href="./login.html">Volver al inicio de sesión</a>
+
+      <a href="./login.html">
+        Volver al inicio de sesión
+      </a>
     </div>
   `;
 }
 
 /**
- * Muestra un mensaje general.
+ * Muestra un mensaje global.
  *
  * @param {string} message
  */
 function showMessage(message) {
-  const element = document.querySelector("#global-message");
+  const element =
+    document.querySelector("#global-message");
 
   element.textContent = message;
   element.hidden = false;
 }
 
 /**
- * Oculta el mensaje general.
+ * Limpia el mensaje global.
  */
 function clearMessage() {
-  const element = document.querySelector("#global-message");
+  const element =
+    document.querySelector("#global-message");
 
-  element.hidden = true;
   element.textContent = "";
+  element.hidden = true;
 }
 
 /**
- * Asigna texto a un elemento cuando existe.
+ * Cambia el estado visual de un botón.
+ *
+ * @param {HTMLButtonElement|null} button
+ * @param {boolean} loading
+ * @param {string} text
+ */
+function setButtonLoading(
+  button,
+  loading,
+  text
+) {
+  if (!button) {
+    return;
+  }
+
+  button.disabled = loading;
+  button.textContent = text;
+}
+
+/**
+ * Asigna texto a un selector.
  *
  * @param {string} selector
  * @param {string|number} value
  */
-function setTextContent(selector, value) {
-  const element = document.querySelector(selector);
+function setText(selector, value) {
+  const element =
+    document.querySelector(selector);
 
   if (element) {
-    element.textContent = String(value);
+    element.textContent =
+      String(value);
   }
 }
 
 /**
- * Convierte un valor numérico a dólares.
+ * Formatea valores monetarios.
  *
  * @param {unknown} value
  * @returns {string}
  */
 function money(value) {
-  return new Intl.NumberFormat("es-EC", {
-    style: "currency",
-    currency: "USD"
-  }).format(Number(value || 0));
+  return new Intl.NumberFormat(
+    "es-EC",
+    {
+      style: "currency",
+      currency: "USD"
+    }
+  ).format(Number(value || 0));
 }
 
 /**
- * Convierte valores técnicos a texto legible.
+ * Convierte un valor técnico a texto.
  *
  * @param {unknown} value
  * @returns {string}
@@ -833,31 +1349,34 @@ function money(value) {
 function pretty(value) {
   return String(value || "")
     .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) =>
-      character.toUpperCase()
+    .replace(
+      /\b\w/g,
+      (character) =>
+        character.toUpperCase()
     );
 }
 
 /**
- * Obtiene las iniciales de un nombre.
+ * Obtiene las iniciales del usuario.
  *
  * @param {string} name
  * @returns {string}
  */
 function getInitials(name) {
-  const initials = String(name || "TG")
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => word.charAt(0))
-    .join("")
-    .toUpperCase();
+  const initials =
+    String(name || "TG")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word.charAt(0))
+      .join("")
+      .toUpperCase();
 
   return initials || "TG";
 }
 
 /**
- * Escapa texto antes de insertarlo como HTML.
+ * Escapa texto para insertarlo en HTML.
  *
  * @param {unknown} value
  * @returns {string}
@@ -880,7 +1399,7 @@ function escapeHTML(value) {
 }
 
 /**
- * Escapa un valor utilizado en un selector CSS.
+ * Escapa valores usados en selectores CSS.
  *
  * @param {string} value
  * @returns {string}
