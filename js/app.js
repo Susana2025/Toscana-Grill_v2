@@ -1,27 +1,26 @@
 "use strict";
 
 /**
- * Menú público y toma manual de pedidos de Toscana Grill.
+ * Toscana Grill
+ * Menú público y toma manual de pedidos.
  *
- * Modos admitidos:
+ * Modos:
+ * - Cliente con QR: ?mesa=4
+ * - Personal: ?modo=admin
+ * - Público general: sin parámetros
  *
- * 1. Cliente con QR:
- *    ?mesa=4
- *    La mesa queda seleccionada y bloqueada.
- *
- * 2. Personal del restaurante:
- *    ?modo=admin
- *    Permite elegir manualmente el tipo de pedido y la mesa.
- *
- * 3. Acceso general:
- *    Sin parámetros.
- *    Mantiene la selección manual disponible.
+ * Navegación:
+ * - Filtro "Todos"
+ * - Filtro por categoría
+ * - Búsqueda dentro del filtro seleccionado
  */
 
 const state = {
   menu: [],
   tables: [],
   cart: [],
+  categories: [],
+  activeCategory: "todos",
   qrTableNumber: null,
   qrTable: null,
   adminMode: false
@@ -33,7 +32,7 @@ document.addEventListener(
 );
 
 /**
- * Inicializa la aplicación.
+ * Inicializa el menú.
  *
  * @returns {Promise<void>}
  */
@@ -73,7 +72,7 @@ async function initializeApp() {
 }
 
 /**
- * Configura eventos permanentes.
+ * Registra eventos permanentes.
  */
 function bindEvents() {
   const searchInput =
@@ -128,7 +127,7 @@ function bindEvents() {
 }
 
 /**
- * Detecta el modo de operación desde la URL.
+ * Detecta los parámetros de operación.
  */
 function detectURLMode() {
   const parameters =
@@ -136,12 +135,11 @@ function detectURLMode() {
       window.location.search
     );
 
-  const mode =
-    String(
-      parameters.get("modo") || ""
-    )
-      .trim()
-      .toLowerCase();
+  const mode = String(
+    parameters.get("modo") || ""
+  )
+    .trim()
+    .toLowerCase();
 
   state.adminMode =
     mode === "admin" ||
@@ -184,72 +182,7 @@ function detectURLMode() {
 }
 
 /**
- * Aplica la configuración detectada en la URL.
- */
-function applyURLConfiguration() {
-  if (state.adminMode) {
-    enableManualOrderMode();
-    renderAdminModeNotice();
-    return;
-  }
-
-  applyQRTable();
-}
-
-/**
- * Activa la toma manual de pedidos.
- */
-function enableManualOrderMode() {
-  const orderType =
-    document.querySelector(
-      "#order-type"
-    );
-
-  const tableSelect =
-    document.querySelector(
-      "#table-select"
-    );
-
-  if (orderType) {
-    orderType.disabled = false;
-  }
-
-  if (tableSelect) {
-    tableSelect.disabled = false;
-  }
-
-  state.qrTable = null;
-}
-
-/**
- * Muestra una indicación de modo administrativo.
- */
-function renderAdminModeNotice() {
-  const tableField =
-    document.querySelector(
-      "#table-field"
-    );
-
-  if (!tableField) {
-    return;
-  }
-
-  removeModeNotices();
-
-  const notice =
-    document.createElement("p");
-
-  notice.id = "admin-mode-notice";
-  notice.className = "qr-table-notice";
-
-  notice.textContent =
-    "Modo de toma manual: selecciona el tipo de pedido y la mesa correspondiente.";
-
-  tableField.appendChild(notice);
-}
-
-/**
- * Carga productos activos y disponibles.
+ * Carga el catálogo disponible.
  *
  * @returns {Promise<void>}
  */
@@ -278,7 +211,7 @@ async function loadMenu() {
 
   if (error) {
     console.warn(
-      "No se pudo cargar el menú desde Supabase. Se utilizará el archivo local.",
+      "No se pudo cargar el menú desde Supabase. Se utilizará el catálogo local.",
       error
     );
 
@@ -299,28 +232,401 @@ async function loadMenu() {
       await response.json();
 
     state.menu =
-      Array.isArray(
-        fallback.productos
-      )
+      Array.isArray(fallback.productos)
         ? fallback.productos
         : [];
   } else {
-    state.menu = (
-      Array.isArray(data)
-        ? data
-        : []
-    ).map((product) => ({
-      ...product,
-      categoria:
-        product.categorias?.nombre ||
-        "Otros",
-      categoria_orden:
-        product.categorias?.orden ||
-        999
-    }));
+    state.menu =
+      window.Array.isArray(data)
+        ? data.map((product) => ({
+            ...product,
+            categoria:
+              product.categorias?.nombre ||
+              "Otros",
+            categoria_orden:
+              Number(
+                product.categorias?.orden ??
+                999
+              )
+          }))
+        : [];
   }
 
+  buildCategories();
+  renderCategoryNavigation();
   renderMenu();
+}
+
+/**
+ * Construye el catálogo de categorías únicas.
+ */
+function buildCategories() {
+  const categoryMap =
+    new Map();
+
+  state.menu.forEach((product) => {
+    const name =
+      product.categoria ||
+      product.categorias?.nombre ||
+      "Otros";
+
+    const order =
+      Number(
+        product.categoria_orden ??
+        product.categorias?.orden ??
+        999
+      );
+
+    const key =
+      normalizeCategory(name);
+
+    if (!categoryMap.has(key)) {
+      categoryMap.set(key, {
+        key,
+        name,
+        order
+      });
+    }
+  });
+
+  state.categories =
+    Array.from(
+      categoryMap.values()
+    ).sort((first, second) => {
+      if (first.order !== second.order) {
+        return first.order - second.order;
+      }
+
+      return first.name.localeCompare(
+        second.name,
+        "es"
+      );
+    });
+
+  const activeCategoryExists =
+    state.activeCategory === "todos" ||
+    state.categories.some(
+      (category) =>
+        category.key ===
+        state.activeCategory
+    );
+
+  if (!activeCategoryExists) {
+    state.activeCategory = "todos";
+  }
+}
+
+/**
+ * Renderiza los filtros de categorías.
+ */
+function renderCategoryNavigation() {
+  const navigation =
+    document.querySelector(
+      "#category-nav"
+    );
+
+  if (!navigation) {
+    return;
+  }
+
+  const allButton = `
+    <button
+      type="button"
+      class="category-filter ${
+        state.activeCategory === "todos"
+          ? "active"
+          : ""
+      }"
+      data-category-filter="todos"
+      aria-pressed="${
+        state.activeCategory === "todos"
+          ? "true"
+          : "false"
+      }"
+    >
+      <span aria-hidden="true">▦</span>
+      Todos
+    </button>
+  `;
+
+  const categoryButtons =
+    state.categories
+      .map((category) => {
+        const isActive =
+          state.activeCategory ===
+          category.key;
+
+        return `
+          <button
+            type="button"
+            class="category-filter ${
+              isActive
+                ? "active"
+                : ""
+            }"
+            data-category-filter="${escapeHTML(
+              category.key
+            )}"
+            aria-pressed="${
+              isActive
+                ? "true"
+                : "false"
+            }"
+          >
+            ${escapeHTML(
+              category.name
+            )}
+          </button>
+        `;
+      })
+      .join("");
+
+  navigation.innerHTML =
+    allButton +
+    categoryButtons;
+
+  navigation
+    .querySelectorAll(
+      "[data-category-filter]"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          state.activeCategory =
+            button.dataset
+              .categoryFilter ||
+            "todos";
+
+          renderCategoryNavigation();
+          renderMenu();
+
+          scrollSelectedCategoryIntoView();
+        }
+      );
+    });
+}
+
+/**
+ * Mantiene visible el filtro seleccionado.
+ */
+function scrollSelectedCategoryIntoView() {
+  const activeButton =
+    document.querySelector(
+      ".category-filter.active"
+    );
+
+  if (!activeButton) {
+    return;
+  }
+
+  activeButton.scrollIntoView({
+    behavior: "smooth",
+    block: "nearest",
+    inline: "center"
+  });
+}
+
+/**
+ * Renderiza productos según categoría y búsqueda.
+ */
+function renderMenu() {
+  const searchInput =
+    document.querySelector(
+      "#search"
+    );
+
+  const container =
+    document.querySelector(
+      "#menu-container"
+    );
+
+  const resultsLabel =
+    document.querySelector(
+      "#menu-results-label"
+    );
+
+  if (!container) {
+    return;
+  }
+
+  const query = String(
+    searchInput?.value || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const filteredProducts =
+    state.menu.filter((product) => {
+      const categoryName =
+        product.categoria ||
+        product.categorias?.nombre ||
+        "Otros";
+
+      const categoryKey =
+        normalizeCategory(
+          categoryName
+        );
+
+      const matchesCategory =
+        state.activeCategory ===
+          "todos" ||
+        categoryKey ===
+          state.activeCategory;
+
+      const searchableText = `
+        ${product.nombre || ""}
+        ${product.descripcion || ""}
+        ${categoryName}
+      `.toLowerCase();
+
+      const matchesSearch =
+        !query ||
+        searchableText.includes(query);
+
+      return (
+        matchesCategory &&
+        matchesSearch
+      );
+    });
+
+  if (resultsLabel) {
+    const selectedCategory =
+      state.activeCategory ===
+      "todos"
+        ? "Todos los productos"
+        : state.categories.find(
+            (category) =>
+              category.key ===
+              state.activeCategory
+          )?.name ||
+          "Productos";
+
+    resultsLabel.textContent =
+      `${selectedCategory} · ${filteredProducts.length}`;
+  }
+
+  if (
+    filteredProducts.length === 0
+  ) {
+    container.innerHTML = `
+      <div class="menu-empty">
+        <strong>
+          No se encontraron productos.
+        </strong>
+
+        <p>
+          Prueba otra categoría o cambia el texto de búsqueda.
+        </p>
+      </div>
+    `;
+
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="products-grid">
+      ${filteredProducts
+        .map(createProductCard)
+        .join("")}
+    </div>
+  `;
+
+  container
+    .querySelectorAll(
+      "[data-add-product]"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          addProduct(
+            button.dataset
+              .addProduct
+          );
+        }
+      );
+    });
+}
+
+/**
+ * Genera una tarjeta de producto.
+ *
+ * @param {object} product
+ * @returns {string}
+ */
+function createProductCard(product) {
+  const imageHTML =
+    product.imagen_url
+      ? `
+        <div class="product-card-image-wrapper">
+          <img
+            class="product-card-image"
+            src="${escapeHTML(
+              product.imagen_url
+            )}"
+            alt="${escapeHTML(
+              product.nombre
+            )}"
+            loading="lazy"
+            decoding="async"
+          >
+        </div>
+      `
+      : `
+        <div
+          class="product-card-image-wrapper product-card-image-empty"
+          aria-hidden="true"
+        >
+          <span>🔥</span>
+        </div>
+      `;
+
+  return `
+    <article class="product-card">
+      ${imageHTML}
+
+      <div class="product-card-content">
+        <span class="product-card-category">
+          ${escapeHTML(
+            product.categoria ||
+            product.categorias?.nombre ||
+            "Otros"
+          )}
+        </span>
+
+        <h3>
+          ${escapeHTML(
+            product.nombre
+          )}
+        </h3>
+
+        <p>
+          ${escapeHTML(
+            product.descripcion ||
+            "Preparado al momento."
+          )}
+        </p>
+      </div>
+
+      <div class="product-card-footer">
+        <strong>
+          ${money(
+            product.precio
+          )}
+        </strong>
+
+        <button
+          type="button"
+          data-add-product="${escapeHTML(
+            product.id
+          )}"
+        >
+          Agregar
+        </button>
+      </div>
+    </article>
+  `;
 }
 
 /**
@@ -362,20 +668,20 @@ async function loadTables() {
 }
 
 /**
- * Renderiza las opciones de mesa.
+ * Renderiza opciones de mesa.
  */
 function renderTableOptions() {
-  const tableSelect =
+  const select =
     document.querySelector(
       "#table-select"
     );
 
-  if (!tableSelect) {
+  if (!select) {
     return;
   }
 
   if (state.tables.length === 0) {
-    tableSelect.innerHTML = `
+    select.innerHTML = `
       <option value="">
         No hay mesas disponibles
       </option>
@@ -384,7 +690,7 @@ function renderTableOptions() {
     return;
   }
 
-  tableSelect.innerHTML = `
+  select.innerHTML = `
     <option value="">
       Selecciona una mesa
     </option>
@@ -408,7 +714,77 @@ function renderTableOptions() {
 }
 
 /**
- * Aplica la mesa identificada por QR.
+ * Aplica configuración de URL.
+ */
+function applyURLConfiguration() {
+  if (state.adminMode) {
+    enableManualOrderMode();
+    renderAdminModeNotice();
+    return;
+  }
+
+  applyQRTable();
+}
+
+/**
+ * Activa selección manual.
+ */
+function enableManualOrderMode() {
+  const orderType =
+    document.querySelector(
+      "#order-type"
+    );
+
+  const tableSelect =
+    document.querySelector(
+      "#table-select"
+    );
+
+  if (orderType) {
+    orderType.disabled = false;
+  }
+
+  if (tableSelect) {
+    tableSelect.disabled = false;
+  }
+
+  state.qrTable = null;
+}
+
+/**
+ * Muestra aviso de toma manual.
+ */
+function renderAdminModeNotice() {
+  const tableField =
+    document.querySelector(
+      "#table-field"
+    );
+
+  if (!tableField) {
+    return;
+  }
+
+  removeModeNotices();
+
+  const notice =
+    document.createElement("p");
+
+  notice.id =
+    "admin-mode-notice";
+
+  notice.className =
+    "qr-table-notice";
+
+  notice.textContent =
+    "Modo de toma manual: selecciona el tipo de pedido y la mesa correspondiente.";
+
+  tableField.appendChild(
+    notice
+  );
+}
+
+/**
+ * Fija la mesa procedente del QR.
  */
 function applyQRTable() {
   if (!state.qrTableNumber) {
@@ -420,7 +796,9 @@ function applyQRTable() {
     state.tables.find(
       (item) =>
         Number(item.numero) ===
-        Number(state.qrTableNumber)
+        Number(
+          state.qrTableNumber
+        )
     );
 
   if (!table) {
@@ -461,7 +839,7 @@ function applyQRTable() {
 }
 
 /**
- * Muestra el aviso de mesa detectada.
+ * Muestra mesa detectada.
  */
 function renderQRTableNotice() {
   if (!state.qrTable) {
@@ -486,17 +864,22 @@ function renderQRTableNotice() {
   const notice =
     document.createElement("p");
 
-  notice.id = "qr-table-notice";
-  notice.className = "qr-table-notice";
+  notice.id =
+    "qr-table-notice";
+
+  notice.className =
+    "qr-table-notice";
 
   notice.textContent =
     `${label} identificada automáticamente mediante el código QR.`;
 
-  tableField.appendChild(notice);
+  tableField.appendChild(
+    notice
+  );
 }
 
 /**
- * Elimina avisos previos del modo de toma.
+ * Elimina avisos anteriores.
  */
 function removeModeNotices() {
   [
@@ -504,7 +887,9 @@ function removeModeNotices() {
     "#admin-mode-notice"
   ].forEach((selector) => {
     const element =
-      document.querySelector(selector);
+      document.querySelector(
+        selector
+      );
 
     if (element) {
       element.remove();
@@ -513,199 +898,16 @@ function removeModeNotices() {
 }
 
 /**
- * Renderiza el menú.
- */
-function renderMenu() {
-  const searchInput =
-    document.querySelector("#search");
-
-  const menuContainer =
-    document.querySelector(
-      "#menu-container"
-    );
-
-  const categoryNavigation =
-    document.querySelector(
-      "#category-nav"
-    );
-
-  if (
-    !menuContainer ||
-    !categoryNavigation
-  ) {
-    return;
-  }
-
-  const query =
-    String(
-      searchInput?.value || ""
-    )
-      .trim()
-      .toLowerCase();
-
-  const filteredProducts =
-    state.menu.filter((product) => {
-      const searchableText = `
-        ${product.nombre || ""}
-        ${product.descripcion || ""}
-        ${product.categoria || ""}
-      `.toLowerCase();
-
-      return searchableText.includes(query);
-    });
-
-  const groupedProducts =
-    filteredProducts.reduce(
-      (groups, product) => {
-        const category =
-          product.categoria ||
-          product.categorias?.nombre ||
-          "Otros";
-
-        if (!groups[category]) {
-          groups[category] = {
-            order:
-              product.categoria_orden ||
-              product.categorias?.orden ||
-              999,
-            products: []
-          };
-        }
-
-        groups[category].products.push(
-          product
-        );
-
-        return groups;
-      },
-      {}
-    );
-
-  const sortedGroups =
-    Object.entries(groupedProducts)
-      .sort(
-        (
-          [, firstGroup],
-          [, secondGroup]
-        ) =>
-          firstGroup.order -
-          secondGroup.order
-      );
-
-  categoryNavigation.innerHTML =
-    sortedGroups
-      .map(([category]) => {
-        return `
-          <a
-            href="#categoria-${slug(category)}"
-            class="category-link"
-          >
-            ${escapeHTML(category)}
-          </a>
-        `;
-      })
-      .join("");
-
-  menuContainer.innerHTML =
-    sortedGroups.length > 0
-      ? sortedGroups
-          .map(
-            ([category, group]) => `
-              <section
-                id="categoria-${slug(category)}"
-                class="menu-category"
-              >
-                <h2>
-                  ${escapeHTML(category)}
-                </h2>
-
-                <div class="products-grid">
-                  ${group.products
-                    .map(createProductCard)
-                    .join("")}
-                </div>
-              </section>
-            `
-          )
-          .join("")
-      : `
-          <div class="menu-empty">
-            <strong>
-              No se encontraron productos.
-            </strong>
-          </div>
-        `;
-
-  menuContainer
-    .querySelectorAll(
-      "[data-add-product]"
-    )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        () => {
-          addProduct(
-            Number(
-              button.dataset.addProduct
-            )
-          );
-        }
-      );
-    });
-}
-
-/**
- * Genera una tarjeta de producto.
- *
- * @param {object} product
- * @returns {string}
- */
-function createProductCard(product) {
-  return `
-    <article class="product-card">
-      <div class="product-card-content">
-        <h3>
-          ${escapeHTML(
-            product.nombre
-          )}
-        </h3>
-
-        <p>
-          ${escapeHTML(
-            product.descripcion || ""
-          )}
-        </p>
-      </div>
-
-      <div class="product-card-footer">
-        <strong>
-          ${money(product.precio)}
-        </strong>
-
-        <button
-          type="button"
-          data-add-product="${escapeHTML(
-            product.id
-          )}"
-        >
-          Agregar
-        </button>
-      </div>
-    </article>
-  `;
-}
-
-/**
  * Agrega un producto al carrito.
  *
- * @param {number} productId
+ * @param {string|number} productId
  */
 function addProduct(productId) {
   const product =
     state.menu.find(
       (item) =>
-        Number(item.id) ===
-        Number(productId)
+        String(item.id) ===
+        String(productId)
     );
 
   if (!product) {
@@ -715,8 +917,10 @@ function addProduct(productId) {
   const existingItem =
     state.cart.find(
       (item) =>
-        Number(item.producto_id) ===
-        Number(productId)
+        String(
+          item.producto_id
+        ) ===
+        String(productId)
     );
 
   if (existingItem) {
@@ -724,7 +928,7 @@ function addProduct(productId) {
   } else {
     state.cart.push({
       producto_id:
-        Number(product.id),
+        product.id,
       nombre:
         product.nombre,
       precio:
@@ -741,9 +945,9 @@ function addProduct(productId) {
 }
 
 /**
- * Modifica la cantidad.
+ * Cambia cantidad de producto.
  *
- * @param {number} productId
+ * @param {string|number} productId
  * @param {number} variation
  */
 function changeQuantity(
@@ -753,8 +957,10 @@ function changeQuantity(
   const item =
     state.cart.find(
       (product) =>
-        Number(product.producto_id) ===
-        Number(productId)
+        String(
+          product.producto_id
+        ) ===
+        String(productId)
     );
 
   if (!item) {
@@ -767,8 +973,10 @@ function changeQuantity(
     state.cart =
       state.cart.filter(
         (product) =>
-          Number(product.producto_id) !==
-          Number(productId)
+          String(
+            product.producto_id
+          ) !==
+          String(productId)
       );
   }
 
@@ -777,10 +985,10 @@ function changeQuantity(
 }
 
 /**
- * Renderiza el carrito.
+ * Renderiza carrito.
  */
 function renderCart() {
-  const cartContainer =
+  const container =
     document.querySelector(
       "#cart-items"
     );
@@ -795,8 +1003,13 @@ function renderCart() {
       "#cart-total"
     );
 
+  const countElement =
+    document.querySelector(
+      "#cart-count"
+    );
+
   if (
-    !cartContainer ||
+    !container ||
     !emptyMessage ||
     !totalElement
   ) {
@@ -806,58 +1019,56 @@ function renderCart() {
   emptyMessage.hidden =
     state.cart.length > 0;
 
-  cartContainer.innerHTML =
+  container.innerHTML =
     state.cart
-      .map(
-        (item) => `
-          <article class="cart-item">
-            <div class="cart-item-info">
-              <strong>
-                ${escapeHTML(
-                  item.nombre
-                )}
-              </strong>
+      .map((item) => `
+        <article class="cart-item">
+          <div class="cart-item-info">
+            <strong>
+              ${escapeHTML(
+                item.nombre
+              )}
+            </strong>
 
-              <span>
-                ${money(
-                  item.precio
-                )} c/u
-              </span>
-            </div>
+            <span>
+              ${money(
+                item.precio
+              )} c/u
+            </span>
+          </div>
 
-            <div class="cart-item-controls">
-              <button
-                type="button"
-                data-minus="${escapeHTML(
-                  item.producto_id
-                )}"
-                aria-label="Reducir cantidad"
-              >
-                −
-              </button>
+          <div class="cart-item-controls">
+            <button
+              type="button"
+              data-minus="${escapeHTML(
+                item.producto_id
+              )}"
+              aria-label="Reducir cantidad"
+            >
+              −
+            </button>
 
-              <strong>
-                ${Number(
-                  item.cantidad
-                )}
-              </strong>
+            <strong>
+              ${Number(
+                item.cantidad
+              )}
+            </strong>
 
-              <button
-                type="button"
-                data-plus="${escapeHTML(
-                  item.producto_id
-                )}"
-                aria-label="Aumentar cantidad"
-              >
-                +
-              </button>
-            </div>
-          </article>
-        `
-      )
+            <button
+              type="button"
+              data-plus="${escapeHTML(
+                item.producto_id
+              )}"
+              aria-label="Aumentar cantidad"
+            >
+              +
+            </button>
+          </div>
+        </article>
+      `)
       .join("");
 
-  cartContainer
+  container
     .querySelectorAll(
       "[data-minus]"
     )
@@ -866,16 +1077,14 @@ function renderCart() {
         "click",
         () => {
           changeQuantity(
-            Number(
-              button.dataset.minus
-            ),
+            button.dataset.minus,
             -1
           );
         }
       );
     });
 
-  cartContainer
+  container
     .querySelectorAll(
       "[data-plus]"
     )
@@ -884,9 +1093,7 @@ function renderCart() {
         "click",
         () => {
           changeQuantity(
-            Number(
-              button.dataset.plus
-            ),
+            button.dataset.plus,
             1
           );
         }
@@ -902,12 +1109,25 @@ function renderCart() {
       0
     );
 
+  const quantity =
+    state.cart.reduce(
+      (sum, item) =>
+        sum +
+        Number(item.cantidad),
+      0
+    );
+
   totalElement.textContent =
     money(total);
+
+  if (countElement) {
+    countElement.textContent =
+      String(quantity);
+  }
 }
 
 /**
- * Muestra los campos según tipo de pedido.
+ * Muestra campos según el tipo de pedido.
  */
 function toggleOrderFields() {
   const orderType =
@@ -933,7 +1153,8 @@ function toggleOrderFields() {
     return;
   }
 
-  const type = orderType.value;
+  const type =
+    orderType.value;
 
   tableField.hidden =
     type !== "mesa";
@@ -945,15 +1166,22 @@ function toggleOrderFields() {
     state.qrTable &&
     !state.adminMode
   ) {
-    orderType.value = "mesa";
-    orderType.disabled = true;
-    tableField.hidden = false;
-    addressField.hidden = true;
+    orderType.value =
+      "mesa";
+
+    orderType.disabled =
+      true;
+
+    tableField.hidden =
+      false;
+
+    addressField.hidden =
+      true;
   }
 }
 
 /**
- * Registra un pedido.
+ * Envía el pedido.
  *
  * @returns {Promise<void>}
  */
@@ -996,9 +1224,10 @@ async function submitOrder() {
 
   const tableId =
     orderType === "mesa"
-      ? Number(
+      ? (
           state.qrTable?.id ||
-          tableSelect?.value
+          tableSelect?.value ||
+          null
         )
       : null;
 
@@ -1033,7 +1262,9 @@ async function submitOrder() {
     return;
   }
 
-  submitButton.disabled = true;
+  submitButton.disabled =
+    true;
+
   submitButton.textContent =
     "Registrando…";
 
@@ -1045,8 +1276,10 @@ async function submitOrder() {
       await window.toscanaSupabase.rpc(
         "crear_pedido",
         {
-          p_tipo: orderType,
-          p_mesa_id: tableId,
+          p_tipo:
+            orderType,
+          p_mesa_id:
+            tableId,
           p_cliente_nombre:
             getInputValue(
               "#customer-name"
@@ -1100,13 +1333,13 @@ async function submitOrder() {
       money(data.total)
     );
 
-    const successDialog =
+    const dialog =
       document.querySelector(
         "#success-dialog"
       );
 
-    if (successDialog) {
-      successDialog.showModal();
+    if (dialog) {
+      dialog.showModal();
     }
   } catch (error) {
     console.error(
@@ -1119,26 +1352,28 @@ async function submitOrder() {
       "No se pudo registrar el pedido."
     );
   } finally {
-    submitButton.disabled = false;
+    submitButton.disabled =
+      false;
+
     submitButton.textContent =
       "Confirmar pedido";
   }
 }
 
 /**
- * Inicia un pedido nuevo.
+ * Inicia nuevo pedido.
  */
 function startNewOrder() {
   clearCart();
   clearCustomerFields();
 
-  const successDialog =
+  const dialog =
     document.querySelector(
       "#success-dialog"
     );
 
-  if (successDialog?.open) {
-    successDialog.close();
+  if (dialog?.open) {
+    dialog.close();
   }
 
   applyURLConfiguration();
@@ -1146,7 +1381,7 @@ function startNewOrder() {
 }
 
 /**
- * Vacía el carrito.
+ * Vacía carrito.
  */
 function clearCart() {
   state.cart = [];
@@ -1155,19 +1390,19 @@ function clearCart() {
 }
 
 /**
- * Limpia campos del cliente.
+ * Limpia datos del cliente.
  */
 function clearCustomerFields() {
-  const selectors = [
+  [
     "#customer-name",
     "#customer-phone",
     "#delivery-address",
     "#order-notes"
-  ];
-
-  selectors.forEach((selector) => {
+  ].forEach((selector) => {
     const element =
-      document.querySelector(selector);
+      document.querySelector(
+        selector
+      );
 
     if (element) {
       element.value = "";
@@ -1176,7 +1411,7 @@ function clearCustomerFields() {
 }
 
 /**
- * Guarda carrito.
+ * Guarda carrito localmente.
  */
 function saveCart() {
   localStorage.setItem(
@@ -1207,14 +1442,41 @@ function restoreCart() {
 }
 
 /**
- * Obtiene un valor de campo.
+ * Normaliza categoría.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeCategory(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(
+      /[\u0300-\u036f]/g,
+      ""
+    )
+    .replace(
+      /[^a-z0-9]+/g,
+      "-"
+    )
+    .replace(
+      /^-+|-+$/g,
+      ""
+    );
+}
+
+/**
+ * Obtiene valor de campo.
  *
  * @param {string} selector
  * @returns {string}
  */
 function getInputValue(selector) {
   const element =
-    document.querySelector(selector);
+    document.querySelector(
+      selector
+    );
 
   return String(
     element?.value || ""
@@ -1265,7 +1527,9 @@ function clearMessage() {
  */
 function setText(selector, value) {
   const element =
-    document.querySelector(selector);
+    document.querySelector(
+      selector
+    );
 
   if (element) {
     element.textContent =
@@ -1274,7 +1538,7 @@ function setText(selector, value) {
 }
 
 /**
- * Formatea dinero.
+ * Formatea moneda.
  *
  * @param {unknown} value
  * @returns {string}
@@ -1286,7 +1550,9 @@ function money(value) {
       style: "currency",
       currency: "USD"
     }
-  ).format(Number(value || 0));
+  ).format(
+    Number(value || 0)
+  );
 }
 
 /**
@@ -1306,48 +1572,25 @@ function pretty(value) {
 }
 
 /**
- * Genera slug.
- *
- * @param {unknown} value
- * @returns {string}
- */
-function slug(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(
-      /[\u0300-\u036f]/g,
-      ""
-    )
-    .replace(
-      /[^a-z0-9]+/g,
-      "-"
-    )
-    .replace(
-      /^-|-$/g,
-      ""
-    );
-}
-
-/**
  * Escapa HTML.
  *
  * @param {unknown} value
  * @returns {string}
  */
 function escapeHTML(value) {
-  return String(value ?? "").replace(
-    /[&<>"']/g,
-    (character) => {
-      const entities = {
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#039;"
-      };
+  return String(value ?? "")
+    .replace(
+      /[&<>"']/g,
+      (character) => {
+        const entities = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;"
+        };
 
-      return entities[character];
-    }
-  );
+        return entities[character];
+      }
+    );
 }
