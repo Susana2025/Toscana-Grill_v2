@@ -2,9 +2,10 @@
   <div class="view-header">
     <div>
       <h2>Panel de cocina</h2>
+
       <p>
-        Gestiona la preparación de los pedidos confirmados y controla
-        su avance hasta que estén listos para entregar.
+        Gestiona los pedidos desde que ingresan hasta que estén listos
+        para entregar.
       </p>
     </div>
 
@@ -20,20 +21,38 @@
   <div class="kitchen-summary">
     <article class="metric-card">
       <span>Por preparar</span>
-      <strong id="kitchen-confirmed-count">0</strong>
-      <small>Pedidos confirmados</small>
+
+      <strong id="kitchen-pending-count">
+        0
+      </strong>
+
+      <small>
+        Pedidos nuevos
+      </small>
     </article>
 
     <article class="metric-card">
       <span>En preparación</span>
-      <strong id="kitchen-preparing-count">0</strong>
-      <small>Pedidos en cocina</small>
+
+      <strong id="kitchen-preparing-count">
+        0
+      </strong>
+
+      <small>
+        Pedidos en proceso
+      </small>
     </article>
 
     <article class="metric-card">
       <span>Listos</span>
-      <strong id="kitchen-ready-count">0</strong>
-      <small>Pendientes de entrega</small>
+
+      <strong id="kitchen-ready-count">
+        0
+      </strong>
+
+      <small>
+        Pendientes de entrega
+      </small>
     </article>
   </div>
 
@@ -48,7 +67,7 @@
   <div class="kitchen-board">
     <section
       class="kitchen-column"
-      data-kitchen-column="confirmado"
+      data-kitchen-column="pendiente"
     >
       <header class="kitchen-column-header">
         <div>
@@ -56,12 +75,15 @@
 
           <div>
             <h3>Por preparar</h3>
-            <p>Pedidos confirmados</p>
+
+            <p>
+              Pedidos nuevos que todavía no han iniciado
+            </p>
           </div>
         </div>
 
         <span
-          id="kitchen-confirmed-badge"
+          id="kitchen-pending-badge"
           class="counter-badge"
         >
           0
@@ -69,18 +91,21 @@
       </header>
 
       <div
-        id="kitchen-confirmed-list"
+        id="kitchen-pending-list"
         class="kitchen-orders-list"
       ></div>
 
       <div
-        id="kitchen-confirmed-empty"
+        id="kitchen-pending-empty"
         class="empty-state kitchen-empty"
         hidden
       >
-        <strong>No hay pedidos por preparar.</strong>
+        <strong>
+          No hay pedidos por preparar.
+        </strong>
+
         <p>
-          Los pedidos confirmados aparecerán en esta columna.
+          Los pedidos nuevos aparecerán en esta columna.
         </p>
       </div>
     </section>
@@ -95,7 +120,10 @@
 
           <div>
             <h3>En preparación</h3>
-            <p>Pedidos que cocina está procesando</p>
+
+            <p>
+              Pedidos que cocina está procesando
+            </p>
           </div>
         </div>
 
@@ -117,7 +145,10 @@
         class="empty-state kitchen-empty"
         hidden
       >
-        <strong>No hay pedidos en preparación.</strong>
+        <strong>
+          No hay pedidos en preparación.
+        </strong>
+
         <p>
           Los pedidos iniciados aparecerán en esta columna.
         </p>
@@ -134,7 +165,10 @@
 
           <div>
             <h3>Listos</h3>
-            <p>Pedidos terminados y pendientes de entrega</p>
+
+            <p>
+              Pedidos terminados y pendientes de entrega
+            </p>
           </div>
         </div>
 
@@ -156,7 +190,10 @@
         class="empty-state kitchen-empty"
         hidden
       >
-        <strong>No hay pedidos listos.</strong>
+        <strong>
+          No hay pedidos listos.
+        </strong>
+
         <p>
           Los pedidos terminados aparecerán en esta columna.
         </p>
