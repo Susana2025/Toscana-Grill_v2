@@ -3,25 +3,21 @@
 /**
  * Módulo Cocina de Toscana Grill.
  *
+ * Flujo simplificado:
+ * pendiente / confirmado -> en_preparacion -> listo
+ *
  * Responsabilidades:
  * - Cargar la vista cocina.html.
  * - Consultar pedidos activos.
- * - Mostrar únicamente pedidos confirmados, en preparación y listos.
- * - Consultar el detalle de cada pedido para mostrar productos.
- * - Distribuir los pedidos en columnas operativas.
- * - Mostrar tiempos y observaciones.
- *
- * Importante:
- * Este módulo todavía no cambia estados.
- * Primero debe existir una función SQL segura que valide:
- * - usuario autenticado;
- * - rol autorizado;
- * - transición permitida;
- * - registro en historial.
+ * - Mostrar pedidos por preparar, en preparación y listos.
+ * - Consultar productos y observaciones.
+ * - Cambiar estados mediante la RPC actualizar_estado_pedido.
+ * - Refrescar automáticamente el tablero después de cada cambio.
  */
 
 (function initializeKitchenModule() {
   const KITCHEN_STATES = [
+    "pendiente",
     "confirmado",
     "en_preparacion",
     "listo"
@@ -30,6 +26,7 @@
   const state = {
     initialized: false,
     loading: false,
+    updatingOrderId: null,
     orders: [],
     details: new Map(),
     callbacks: {
@@ -84,7 +81,7 @@
   }
 
   /**
-   * Comprueba que las dependencias globales existan.
+   * Valida las dependencias globales requeridas.
    */
   function validateDependencies() {
     if (!window.toscanaSupabase) {
@@ -107,7 +104,7 @@
   }
 
   /**
-   * Configura los eventos internos de la vista.
+   * Configura los eventos internos del módulo.
    */
   function setupEvents() {
     const refreshButton = document.querySelector(
@@ -123,7 +120,7 @@
   }
 
   /**
-   * Recarga la información del panel de cocina.
+   * Recarga toda la información del tablero de cocina.
    *
    * @returns {Promise<void>}
    */
@@ -196,7 +193,7 @@
   }
 
   /**
-   * Consulta pedidos activos y conserva solo los estados de cocina.
+   * Consulta los pedidos activos relevantes para cocina.
    *
    * @returns {Promise<Array<object>>}
    */
@@ -236,7 +233,7 @@
   }
 
   /**
-   * Consulta el detalle de los pedidos para mostrar productos.
+   * Consulta el detalle de cada pedido.
    *
    * @param {Array<object>} orders
    * @returns {Promise<void>}
@@ -299,9 +296,10 @@
    * Renderiza las tres columnas del tablero.
    */
   function render() {
-    const confirmedOrders =
+    const pendingOrders =
       state.orders.filter(
         (order) =>
+          order.estado === "pendiente" ||
           order.estado === "confirmado"
       );
 
@@ -318,11 +316,11 @@
       );
 
     renderColumn({
-      orders: confirmedOrders,
-      listSelector: "#kitchen-confirmed-list",
-      emptySelector: "#kitchen-confirmed-empty",
-      countSelector: "#kitchen-confirmed-count",
-      badgeSelector: "#kitchen-confirmed-badge"
+      orders: pendingOrders,
+      listSelector: "#kitchen-pending-list",
+      emptySelector: "#kitchen-pending-empty",
+      countSelector: "#kitchen-pending-count",
+      badgeSelector: "#kitchen-pending-badge"
     });
 
     renderColumn({
@@ -346,11 +344,6 @@
    * Renderiza una columna del tablero.
    *
    * @param {object} options
-   * @param {Array<object>} options.orders
-   * @param {string} options.listSelector
-   * @param {string} options.emptySelector
-   * @param {string} options.countSelector
-   * @param {string} options.badgeSelector
    */
   function renderColumn({
     orders,
@@ -399,7 +392,7 @@
   }
 
   /**
-   * Genera una tarjeta operativa de cocina.
+   * Genera una tarjeta operativa.
    *
    * @param {object} order
    * @returns {string}
@@ -478,6 +471,9 @@
         `
         : "";
 
+    const actionHTML =
+      createActionButton(order);
+
     return `
       <article
         class="kitchen-card kitchen-time-${utils.escapeHTML(
@@ -511,19 +507,6 @@
         ${detailErrorHTML}
 
         <footer class="kitchen-card-footer">
-          <span>
-            ${Number(
-              order.cantidad_items || 0
-            )}
-            producto${
-              Number(
-                order.cantidad_items || 0
-              ) === 1
-                ? ""
-                : "s"
-            }
-          </span>
-
           <button
             class="kitchen-detail-button"
             type="button"
@@ -533,13 +516,74 @@
           >
             Ver detalle
           </button>
+
+          ${actionHTML}
         </footer>
       </article>
     `;
   }
 
   /**
-   * Genera el listado de productos de una comanda.
+   * Genera el botón de acción según el estado.
+   *
+   * @param {object} order
+   * @returns {string}
+   */
+  function createActionButton(order) {
+    const utils = window.toscanaUtils;
+
+    const orderId =
+      order.pedido_id ||
+      order.id ||
+      "";
+
+    const isUpdating =
+      state.updatingOrderId === orderId;
+
+    if (
+      order.estado === "pendiente" ||
+      order.estado === "confirmado"
+    ) {
+      return `
+        <button
+          class="kitchen-action-button"
+          type="button"
+          data-kitchen-action="en_preparacion"
+          data-order-id="${utils.escapeHTML(orderId)}"
+          ${isUpdating ? "disabled" : ""}
+        >
+          ${
+            isUpdating
+              ? "Procesando…"
+              : "Iniciar preparación"
+          }
+        </button>
+      `;
+    }
+
+    if (order.estado === "en_preparacion") {
+      return `
+        <button
+          class="kitchen-action-button"
+          type="button"
+          data-kitchen-action="listo"
+          data-order-id="${utils.escapeHTML(orderId)}"
+          ${isUpdating ? "disabled" : ""}
+        >
+          ${
+            isUpdating
+              ? "Procesando…"
+              : "Marcar como listo"
+          }
+        </button>
+      `;
+    }
+
+    return "";
+  }
+
+  /**
+   * Genera el listado de productos.
    *
    * @param {Array<object>} items
    * @returns {string}
@@ -599,7 +643,7 @@
   }
 
   /**
-   * Registra eventos de las tarjetas de cocina.
+   * Registra eventos de detalle y cambio de estado.
    *
    * @param {HTMLElement} container
    */
@@ -626,10 +670,113 @@
           }
         );
       });
+
+    container
+      .querySelectorAll(
+        "[data-kitchen-action]"
+      )
+      .forEach((button) => {
+        button.addEventListener(
+          "click",
+          async () => {
+            const orderId =
+              button.dataset.orderId;
+
+            const nextState =
+              button.dataset.kitchenAction;
+
+            if (!orderId || !nextState) {
+              return;
+            }
+
+            await updateOrderStatus(
+              orderId,
+              nextState
+            );
+          }
+        );
+      });
   }
 
   /**
-   * Determina la alerta visual según el tiempo transcurrido.
+   * Ejecuta el cambio de estado mediante la RPC segura.
+   *
+   * @param {string} orderId
+   * @param {string} nextState
+   * @returns {Promise<void>}
+   */
+  async function updateOrderStatus(
+    orderId,
+    nextState
+  ) {
+    if (state.updatingOrderId) {
+      return;
+    }
+
+    state.updatingOrderId = orderId;
+    state.callbacks.clearMessage();
+
+    render();
+
+    try {
+      const { data, error } =
+        await window.toscanaSupabase.rpc(
+          "actualizar_estado_pedido",
+          {
+            p_pedido_id: orderId,
+            p_estado_nuevo: nextState,
+            p_observacion: null
+          }
+        );
+
+      if (error) {
+        console.error(
+          "Error al actualizar el estado del pedido:",
+          error
+        );
+
+        throw new Error(
+          error.message ||
+          "No fue posible actualizar el pedido."
+        );
+      }
+
+      if (
+        data &&
+        data.actualizado === false
+      ) {
+        state.callbacks.showMessage(
+          data.mensaje ||
+          "El pedido no necesitó cambios."
+        );
+      }
+
+      await refresh();
+    } catch (error) {
+      console.error(
+        "Error operativo de Cocina:",
+        error
+      );
+
+      state.callbacks.showMessage(
+        error?.message ||
+        "No fue posible cambiar el estado del pedido."
+      );
+    } finally {
+      state.updatingOrderId = null;
+
+      if (
+        document.querySelector(
+          "#view-cocina"
+        )
+      ) {
+        render();
+      }
+    }
+  }
+
+  /**
+   * Determina la alerta visual por tiempo.
    *
    * @param {unknown} createdAt
    * @returns {"normal"|"warning"|"critical"}
@@ -671,22 +818,22 @@
    */
   function clearColumns() {
     const listSelectors = [
-      "#kitchen-confirmed-list",
+      "#kitchen-pending-list",
       "#kitchen-preparing-list",
       "#kitchen-ready-list"
     ];
 
     const emptySelectors = [
-      "#kitchen-confirmed-empty",
+      "#kitchen-pending-empty",
       "#kitchen-preparing-empty",
       "#kitchen-ready-empty"
     ];
 
     const countSelectors = [
-      "#kitchen-confirmed-count",
+      "#kitchen-pending-count",
       "#kitchen-preparing-count",
       "#kitchen-ready-count",
-      "#kitchen-confirmed-badge",
+      "#kitchen-pending-badge",
       "#kitchen-preparing-badge",
       "#kitchen-ready-badge"
     ];
@@ -718,11 +865,12 @@
   }
 
   /**
-   * Limpia el estado interno del módulo.
+   * Limpia el estado interno.
    */
   function destroy() {
     state.initialized = false;
     state.loading = false;
+    state.updatingOrderId = null;
     state.orders = [];
     state.details.clear();
 
