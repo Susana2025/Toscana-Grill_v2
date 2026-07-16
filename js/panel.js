@@ -8,12 +8,9 @@
  * - Obtener el perfil del usuario.
  * - Aplicar permisos por rol.
  * - Controlar la navegación.
- * - Cargar los módulos independientes.
- * - Gestionar el modal de detalle de pedidos.
+ * - Inicializar módulos independientes.
+ * - Gestionar el modal de detalle.
  * - Cerrar sesión.
- *
- * La lógica propia de Dashboard, Pedidos y Cocina
- * se encuentra en sus respectivos archivos.
  */
 
 const panelState = {
@@ -60,7 +57,7 @@ const VIEW_CONFIG = {
       "administrador",
       "caja"
     ],
-    moduleName: null
+    moduleName: "toscanaCashierModule"
   },
 
   historial: {
@@ -96,7 +93,7 @@ document.addEventListener(
 );
 
 /**
- * Inicializa el panel administrativo.
+ * Inicializa el panel.
  *
  * @returns {Promise<void>}
  */
@@ -112,6 +109,7 @@ async function initializePanel() {
     }
 
     panelState.session = session;
+
     panelState.profile = await getUserProfile(
       session.user.id
     );
@@ -149,10 +147,10 @@ async function initializePanel() {
 }
 
 /**
- * Verifica que las dependencias globales estén disponibles.
+ * Verifica las dependencias globales.
  */
 function validateGlobalDependencies() {
-  const requiredDependencies = [
+  const dependencies = [
     {
       object: window.toscanaSupabase,
       message:
@@ -170,10 +168,9 @@ function validateGlobalDependencies() {
     }
   ];
 
-  const missingDependency =
-    requiredDependencies.find(
-      (dependency) => !dependency.object
-    );
+  const missingDependency = dependencies.find(
+    (dependency) => !dependency.object
+  );
 
   if (missingDependency) {
     throw new Error(
@@ -201,7 +198,7 @@ async function getCurrentSession() {
 }
 
 /**
- * Obtiene el perfil del usuario autenticado.
+ * Obtiene el perfil del usuario.
  *
  * @param {string} userId
  * @returns {Promise<object>}
@@ -234,7 +231,7 @@ async function getUserProfile(userId) {
 }
 
 /**
- * Presenta la información del usuario autenticado.
+ * Presenta la información del usuario.
  */
 function setupUserInterface() {
   const profile = panelState.profile;
@@ -265,7 +262,7 @@ function setupUserInterface() {
 }
 
 /**
- * Configura los eventos permanentes del panel.
+ * Configura los eventos globales.
  */
 function setupGlobalEvents() {
   const logoutButton =
@@ -354,7 +351,7 @@ function setupGlobalEvents() {
 }
 
 /**
- * Oculta las opciones de navegación no autorizadas.
+ * Aplica permisos de navegación.
  */
 function applyRolePermissions() {
   const currentRole =
@@ -382,7 +379,7 @@ function applyRolePermissions() {
 }
 
 /**
- * Navega hacia una vista del panel.
+ * Navega hacia un módulo.
  *
  * @param {string} viewName
  * @returns {Promise<void>}
@@ -433,7 +430,11 @@ async function navigateToView(viewName) {
       `No se cargó correctamente el módulo ${config.title}.`
     );
 
-    renderPendingModule(config.title);
+    renderModuleError(
+      config.title,
+      "El archivo JavaScript del módulo no está disponible."
+    );
+
     return;
   }
 
@@ -467,7 +468,7 @@ async function navigateToView(viewName) {
 }
 
 /**
- * Destruye el módulo actualmente cargado.
+ * Destruye el módulo actual.
  */
 function destroyCurrentModule() {
   const currentConfig =
@@ -491,7 +492,7 @@ function destroyCurrentModule() {
 }
 
 /**
- * Marca la opción activa del menú.
+ * Marca el botón activo del menú.
  *
  * @param {string} viewName
  */
@@ -519,7 +520,7 @@ function setPageTitle(title) {
 }
 
 /**
- * Muestra una pantalla de carga de módulo.
+ * Muestra el indicador de carga.
  */
 function renderViewLoading() {
   const container =
@@ -536,7 +537,7 @@ function renderViewLoading() {
 }
 
 /**
- * Muestra un módulo todavía no desarrollado.
+ * Muestra un módulo pendiente.
  *
  * @param {string} title
  */
@@ -565,7 +566,7 @@ function renderPendingModule(title) {
 }
 
 /**
- * Muestra un error de carga dentro del módulo.
+ * Muestra un error dentro del módulo.
  *
  * @param {string} title
  * @param {string} message
@@ -598,7 +599,7 @@ function renderModuleError(title, message) {
 }
 
 /**
- * Abre el detalle completo de un pedido.
+ * Abre el detalle de un pedido.
  *
  * @param {string} orderId
  * @returns {Promise<void>}
@@ -647,7 +648,7 @@ async function openOrder(orderId) {
       createOrderDetailHTML(data);
   } catch (error) {
     console.error(
-      "Error al cargar el detalle del pedido:",
+      "Error al cargar el detalle:",
       error
     );
 
@@ -669,7 +670,7 @@ async function openOrder(orderId) {
 }
 
 /**
- * Genera el HTML del detalle de un pedido.
+ * Genera el detalle del pedido.
  *
  * @param {object} order
  * @returns {string}
@@ -681,7 +682,7 @@ function createOrderDetailHTML(order = {}) {
   const details =
     utils.toArray(order.detalle);
 
-  const detailRows =
+  const rows =
     details.length > 0
       ? details
           .map((item) => {
@@ -690,7 +691,7 @@ function createOrderDetailHTML(order = {}) {
               item.nombre_producto ||
               "Producto";
 
-            const itemObservation =
+            const observation =
               item.observaciones
                 ? `
                   <small>
@@ -710,7 +711,7 @@ function createOrderDetailHTML(order = {}) {
                     )}
                   </strong>
 
-                  ${itemObservation}
+                  ${observation}
                 </td>
 
                 <td>
@@ -742,7 +743,7 @@ function createOrderDetailHTML(order = {}) {
           </tr>
         `;
 
-  const customerHTML =
+  const customer =
     order.cliente_nombre
       ? `
         <div>
@@ -757,7 +758,7 @@ function createOrderDetailHTML(order = {}) {
       `
       : "";
 
-  const customerPhoneHTML =
+  const phone =
     order.cliente_telefono
       ? `
         <div>
@@ -772,7 +773,7 @@ function createOrderDetailHTML(order = {}) {
       `
       : "";
 
-  const observationHTML =
+  const observations =
     order.observaciones
       ? `
         <div class="order-observations">
@@ -851,8 +852,8 @@ function createOrderDetailHTML(order = {}) {
           </strong>
         </div>
 
-        ${customerHTML}
-        ${customerPhoneHTML}
+        ${customer}
+        ${phone}
       </div>
 
       <div class="order-detail-table-wrapper">
@@ -867,12 +868,12 @@ function createOrderDetailHTML(order = {}) {
           </thead>
 
           <tbody>
-            ${detailRows}
+            ${rows}
           </tbody>
         </table>
       </div>
 
-      ${observationHTML}
+      ${observations}
     </div>
   `;
 }
@@ -893,7 +894,7 @@ function closeSidebar() {
 }
 
 /**
- * Cierra la sesión del usuario.
+ * Cierra la sesión.
  *
  * @returns {Promise<void>}
  */
@@ -922,7 +923,7 @@ async function logout() {
 }
 
 /**
- * Redirige al formulario de login.
+ * Redirige al login.
  */
 function redirectToLogin() {
   window.location.replace(
@@ -967,7 +968,7 @@ function clearGlobalMessage() {
 }
 
 /**
- * Muestra un error crítico durante la carga inicial.
+ * Muestra un error crítico.
  *
  * @param {string} message
  */
@@ -977,6 +978,13 @@ function renderFatalError(message) {
       "#app-loading"
     );
 
+  const safeMessage =
+    window.toscanaUtils
+      ? window.toscanaUtils.escapeHTML(
+          message
+        )
+      : String(message);
+
   loading.innerHTML = `
     <div class="fatal-error">
       <h1>
@@ -984,11 +992,7 @@ function renderFatalError(message) {
       </h1>
 
       <p>
-        ${window.toscanaUtils
-          ? window.toscanaUtils.escapeHTML(
-              message
-            )
-          : String(message)}
+        ${safeMessage}
       </p>
 
       <a href="./login.html">
