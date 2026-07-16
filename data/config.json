@@ -1,0 +1,6 @@
+{
+  "restaurante": "Toscana Grill",
+  "moneda": "USD",
+  "zona_horaria": "America/Guayaquil",
+  "nota": "La operación de pedidos se administra desde Supabase."
+}

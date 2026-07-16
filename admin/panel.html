@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Panel administrativo | Toscana Grill</title>
+  <link rel="stylesheet" href="../css/panel.css?v=1">
+</head>
+<body>
+  <div id="app-loading" class="app-loading"><div class="loader"></div><p>Validando sesión…</p></div>
+  <div id="admin-app" class="admin-app" hidden>
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-brand"><span>Toscana Grill</span><strong>Gestión de pedidos</strong></div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-view="dashboard">Dashboard</button>
+        <button class="nav-item" data-view="pedidos">Pedidos activos</button>
+        <button class="nav-item" data-view="cocina" data-roles="administrador,cocina">Cocina</button>
+        <button class="nav-item" data-view="caja" data-roles="administrador,caja">Caja</button>
+        <button class="nav-item" data-view="historial" data-roles="administrador,caja,mesero">Histórico</button>
+        <button class="nav-item" data-view="productos" data-roles="administrador">Productos</button>
+        <button class="nav-item" data-view="usuarios" data-roles="administrador">Usuarios</button>
+      </nav>
+      <div class="sidebar-footer">
+        <a href="../index.html">Ver menú público</a>
+        <button id="logout-button" type="button">Cerrar sesión</button>
+      </div>
+    </aside>
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+    <main class="main-content">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="sidebar-toggle" class="sidebar-toggle" type="button">☰</button>
+          <div><p>Panel administrativo</p><h1 id="page-title">Dashboard</h1></div>
+        </div>
+        <div class="user-box"><div id="user-avatar" class="user-avatar">TG</div><div><strong id="user-name">Usuario</strong><span id="user-role">Rol</span></div></div>
+      </header>
+      <p id="global-message" class="global-message" hidden></p>
+
+      <section id="view-dashboard" class="panel-view active">
+        <div class="view-header"><div><h2>Resumen operativo</h2><p id="current-date"></p></div><button id="refresh-dashboard" class="secondary-button">Actualizar</button></div>
+        <div class="metric-grid">
+          <article class="metric-card"><span>Pedidos activos</span><strong id="metric-active-orders">—</strong><small>Pendientes de finalizar</small></article>
+          <article class="metric-card"><span>Pedidos del día</span><strong id="metric-total-orders">—</strong><small>Todos los estados</small></article>
+          <article class="metric-card"><span>Ventas generadas</span><strong id="metric-sales">$0,00</strong><small>No cancelados</small></article>
+          <article class="metric-card"><span>Total pagado</span><strong id="metric-paid">$0,00</strong><small>Pagos registrados hoy</small></article>
+        </div>
+        <div class="content-card">
+          <div class="card-header"><div><h2>Pedidos activos</h2><p>Selecciona un pedido para ver el detalle.</p></div><span id="orders-count" class="counter-badge">0</span></div>
+          <div id="orders-loading" class="section-loading" hidden>Cargando pedidos…</div>
+          <div id="orders-empty" class="empty-state" hidden><strong>No existen pedidos activos.</strong><p>Los nuevos pedidos aparecerán aquí.</p></div>
+          <div id="orders-list" class="orders-list"></div>
+        </div>
+      </section>
+
+      <section id="view-placeholder" class="panel-view">
+        <div class="content-card placeholder-card"><h2 id="placeholder-title">Módulo</h2><p id="placeholder-description"></p></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="order-dialog" class="order-dialog">
+    <button id="close-order-dialog" class="dialog-close" type="button">×</button>
+    <div id="order-detail-content">Cargando…</div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js?v=1"></script>
+  <script src="../js/supabase-client.js?v=1"></script>
+  <script src="../js/panel.js?v=1"></script>
+</body>
+</html>

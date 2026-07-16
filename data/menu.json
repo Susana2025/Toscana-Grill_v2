@@ -1,0 +1,18 @@
+{
+  "productos": [
+    {
+      "id": 1,
+      "nombre": "Pizza Toscana",
+      "descripcion": "Pizza especial de la casa",
+      "precio": 12.5,
+      "categoria": "Platos principales"
+    },
+    {
+      "id": 2,
+      "nombre": "Limonada",
+      "descripcion": "Limonada natural",
+      "precio": 2.5,
+      "categoria": "Bebidas"
+    }
+  ]
+}

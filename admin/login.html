@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Acceso del personal | Toscana Grill</title>
+  <link rel="stylesheet" href="../css/login.css?v=1">
+</head>
+<body>
+  <main class="login-page">
+    <section class="login-card">
+      <div class="login-brand">
+        <p class="login-eyebrow">Toscana Grill</p>
+        <h1>Acceso del personal</h1>
+        <p class="login-description">Ingresa con la cuenta asignada por el administrador.</p>
+      </div>
+      <form id="login-form" class="login-form" novalidate>
+        <label>Correo electrónico
+          <input id="email" type="email" autocomplete="username" required>
+        </label>
+        <label>Contraseña
+          <div class="password-wrapper">
+            <input id="password" type="password" autocomplete="current-password" required>
+            <button id="toggle-password" class="password-toggle" type="button">Mostrar</button>
+          </div>
+        </label>
+        <p id="login-message" class="login-message" role="alert" hidden></p>
+        <button id="login-submit" class="login-submit" type="submit">Iniciar sesión</button>
+      </form>
+      <a class="return-link" href="../index.html">Volver al menú</a>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/supabase-config.js?v=1"></script>
+  <script src="../js/supabase-client.js?v=1"></script>
+  <script src="../js/login.js?v=1"></script>
+</body>
+</html>

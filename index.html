@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Menú digital y pedidos de Toscana Grill">
+  <title>Toscana Grill | Menú</title>
+  <link rel="stylesheet" href="css/styles.css?v=1">
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-overlay">
+      <p class="eyebrow">Restaurante</p>
+      <h1>Toscana Grill</h1>
+      <p>Selecciona tus productos y registra tu pedido.</p>
+      <a class="staff-link" href="admin/login.html">Acceso del personal</a>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="menu-area">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Nuestro menú</p>
+          <h2>Elige tus productos</h2>
+        </div>
+        <input id="search" class="search" type="search" placeholder="Buscar producto">
+      </div>
+      <div id="category-nav" class="category-nav"></div>
+      <div id="menu-container" class="menu-container">
+        <p class="loading">Cargando menú…</p>
+      </div>
+    </section>
+
+    <aside class="cart">
+      <div class="cart-header">
+        <div>
+          <p class="eyebrow">Pedido</p>
+          <h2>Tu selección</h2>
+        </div>
+        <button id="clear-cart" class="text-button" type="button">Vaciar</button>
+      </div>
+
+      <div id="cart-items" class="cart-items"></div>
+      <p id="cart-empty" class="empty">Aún no agregas productos.</p>
+
+      <div class="order-form">
+        <label>Tipo de pedido
+          <select id="order-type">
+            <option value="mesa">Consumo en mesa</option>
+            <option value="para_llevar">Para llevar</option>
+            <option value="delivery">Delivery</option>
+          </select>
+        </label>
+
+        <label id="table-field">Mesa
+          <select id="table-select"></select>
+        </label>
+
+        <label>Nombre del cliente
+          <input id="customer-name" maxlength="100" placeholder="Opcional">
+        </label>
+
+        <label>Teléfono
+          <input id="customer-phone" maxlength="20" inputmode="tel" placeholder="Opcional">
+        </label>
+
+        <label id="address-field" hidden>Dirección
+          <textarea id="delivery-address" rows="2"></textarea>
+        </label>
+
+        <label>Observaciones generales
+          <textarea id="order-notes" rows="2"></textarea>
+        </label>
+      </div>
+
+      <div class="total-row">
+        <span>Total</span>
+        <strong id="cart-total">$0,00</strong>
+      </div>
+
+      <p id="order-message" class="message" hidden></p>
+      <button id="submit-order" class="primary-button" type="button">Confirmar pedido</button>
+    </aside>
+  </main>
+
+  <dialog id="success-dialog" class="success-dialog">
+    <h2>Pedido registrado</h2>
+    <p>Conserva tu ticket para seguimiento.</p>
+    <div class="ticket-box">
+      <span>Ticket</span>
+      <strong id="success-ticket"></strong>
+      <span>Estado</span>
+      <strong id="success-status"></strong>
+      <span>Total</span>
+      <strong id="success-total"></strong>
+    </div>
+    <button id="new-order" class="primary-button" type="button">Nuevo pedido</button>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js?v=1"></script>
+  <script src="js/supabase-client.js?v=1"></script>
+  <script src="js/app.js?v=1"></script>
+</body>
+</html>
