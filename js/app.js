@@ -4,45 +4,70 @@
  * Toscana Grill
  * Menú público y toma manual de pedidos.
  *
- * Modos:
- * - Cliente con QR: ?mesa=4
- * - Personal: ?modo=admin
- * - Público general: sin parámetros
+ * Modos disponibles:
  *
- * Navegación:
- * - Filtro "Todos"
- * - Filtro por categoría
- * - Búsqueda dentro del filtro seleccionado
+ * 1. Cliente mediante QR:
+ *    ?mesa=4
+ *    La mesa queda seleccionada y bloqueada.
+ *
+ * 2. Personal del restaurante:
+ *    ?modo=admin
+ *    Permite seleccionar manualmente el tipo de pedido y la mesa.
+ *
+ * 3. Acceso general:
+ *    Sin parámetros.
+ *    Mantiene la selección manual habilitada.
+ *
+ * Funcionalidades:
+ * - Carga productos y categorías desde Supabase.
+ * - Filtro "Todos" y filtro individual por categoría.
+ * - Búsqueda de productos.
+ * - Carrito persistente en localStorage.
+ * - Pedido en mesa, para llevar o delivery.
+ * - Detección automática de mesa mediante QR.
+ * - Registro del pedido mediante la RPC crear_pedido.
  */
 
-const state = {
+const appState = {
   menu: [],
+  categories: [],
   tables: [],
   cart: [],
-  categories: [],
+
   activeCategory: "todos",
+
   qrTableNumber: null,
   qrTable: null,
-  adminMode: false
+  adminMode: false,
+
+  loadingMenu: false,
+  loadingTables: false,
+  submittingOrder: false
 };
 
 document.addEventListener(
   "DOMContentLoaded",
-  initializeApp
+  initializeApplication
 );
 
 /**
- * Inicializa el menú.
+ * Inicializa la aplicación.
  *
  * @returns {Promise<void>}
  */
-async function initializeApp() {
-  bindEvents();
+async function initializeApplication() {
+  bindPermanentEvents();
   detectURLMode();
+  restoreCart();
+  renderCart();
 
   if (!window.toscanaSupabase) {
-    showMessage(
+    showOrderMessage(
       "No se configuró correctamente la conexión con Supabase."
+    );
+
+    renderMenuError(
+      "No fue posible conectar con el catálogo."
     );
 
     return;
@@ -54,17 +79,15 @@ async function initializeApp() {
       loadTables()
     ]);
 
-    restoreCart();
-    renderCart();
     applyURLConfiguration();
     toggleOrderFields();
   } catch (error) {
     console.error(
-      "Error al inicializar el menú:",
+      "Error al inicializar Toscana Grill:",
       error
     );
 
-    showMessage(
+    showOrderMessage(
       error?.message ||
       "No fue posible cargar el menú."
     );
@@ -72,9 +95,9 @@ async function initializeApp() {
 }
 
 /**
- * Registra eventos permanentes.
+ * Configura eventos permanentes.
  */
-function bindEvents() {
+function bindPermanentEvents() {
   const searchInput =
     document.querySelector("#search");
 
@@ -84,7 +107,7 @@ function bindEvents() {
   const orderType =
     document.querySelector("#order-type");
 
-  const submitButton =
+  const submitOrderButton =
     document.querySelector("#submit-order");
 
   const newOrderButton =
@@ -100,7 +123,19 @@ function bindEvents() {
   if (clearCartButton) {
     clearCartButton.addEventListener(
       "click",
-      clearCart
+      () => {
+        if (appState.cart.length === 0) {
+          return;
+        }
+
+        const confirmed = window.confirm(
+          "¿Deseas vaciar todos los productos del pedido?"
+        );
+
+        if (confirmed) {
+          clearCart();
+        }
+      }
     );
   }
 
@@ -111,8 +146,8 @@ function bindEvents() {
     );
   }
 
-  if (submitButton) {
-    submitButton.addEventListener(
+  if (submitOrderButton) {
+    submitOrderButton.addEventListener(
       "click",
       submitOrder
     );
@@ -126,8 +161,12 @@ function bindEvents() {
   }
 }
 
+/* =========================================================
+   PARÁMETROS DE LA URL
+   ========================================================= */
+
 /**
- * Detecta los parámetros de operación.
+ * Detecta el modo de operación desde la URL.
  */
 function detectURLMode() {
   const parameters =
@@ -141,13 +180,13 @@ function detectURLMode() {
     .trim()
     .toLowerCase();
 
-  state.adminMode =
+  appState.adminMode =
     mode === "admin" ||
     mode === "personal";
 
-  if (state.adminMode) {
-    state.qrTableNumber = null;
-    state.qrTable = null;
+  if (appState.adminMode) {
+    appState.qrTableNumber = null;
+    appState.qrTable = null;
     return;
   }
 
@@ -155,7 +194,7 @@ function detectURLMode() {
     parameters.get("mesa");
 
   if (!tableParameter) {
-    state.qrTableNumber = null;
+    appState.qrTableNumber = null;
     return;
   }
 
@@ -169,555 +208,24 @@ function detectURLMode() {
     !Number.isInteger(tableNumber) ||
     tableNumber <= 0
   ) {
-    state.qrTableNumber = null;
+    appState.qrTableNumber = null;
 
-    showMessage(
+    showOrderMessage(
       "El código QR contiene un número de mesa no válido."
     );
 
     return;
   }
 
-  state.qrTableNumber = tableNumber;
+  appState.qrTableNumber =
+    tableNumber;
 }
 
 /**
- * Carga el catálogo disponible.
- *
- * @returns {Promise<void>}
- */
-async function loadMenu() {
-  const {
-    data,
-    error
-  } = await window.toscanaSupabase
-    .from("productos")
-    .select(`
-      id,
-      nombre,
-      descripcion,
-      precio,
-      categoria_id,
-      imagen_url,
-      categorias (
-        id,
-        nombre,
-        orden
-      )
-    `)
-    .eq("activo", true)
-    .eq("disponible", true)
-    .order("nombre");
-
-  if (error) {
-    console.warn(
-      "No se pudo cargar el menú desde Supabase. Se utilizará el catálogo local.",
-      error
-    );
-
-    const response = await fetch(
-      "data/menu.json",
-      {
-        cache: "no-store"
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        "No fue posible cargar el menú."
-      );
-    }
-
-    const fallback =
-      await response.json();
-
-    state.menu =
-      Array.isArray(fallback.productos)
-        ? fallback.productos
-        : [];
-  } else {
-    state.menu =
-      window.Array.isArray(data)
-        ? data.map((product) => ({
-            ...product,
-            categoria:
-              product.categorias?.nombre ||
-              "Otros",
-            categoria_orden:
-              Number(
-                product.categorias?.orden ??
-                999
-              )
-          }))
-        : [];
-  }
-
-  buildCategories();
-  renderCategoryNavigation();
-  renderMenu();
-}
-
-/**
- * Construye el catálogo de categorías únicas.
- */
-function buildCategories() {
-  const categoryMap =
-    new Map();
-
-  state.menu.forEach((product) => {
-    const name =
-      product.categoria ||
-      product.categorias?.nombre ||
-      "Otros";
-
-    const order =
-      Number(
-        product.categoria_orden ??
-        product.categorias?.orden ??
-        999
-      );
-
-    const key =
-      normalizeCategory(name);
-
-    if (!categoryMap.has(key)) {
-      categoryMap.set(key, {
-        key,
-        name,
-        order
-      });
-    }
-  });
-
-  state.categories =
-    Array.from(
-      categoryMap.values()
-    ).sort((first, second) => {
-      if (first.order !== second.order) {
-        return first.order - second.order;
-      }
-
-      return first.name.localeCompare(
-        second.name,
-        "es"
-      );
-    });
-
-  const activeCategoryExists =
-    state.activeCategory === "todos" ||
-    state.categories.some(
-      (category) =>
-        category.key ===
-        state.activeCategory
-    );
-
-  if (!activeCategoryExists) {
-    state.activeCategory = "todos";
-  }
-}
-
-/**
- * Renderiza los filtros de categorías.
- */
-function renderCategoryNavigation() {
-  const navigation =
-    document.querySelector(
-      "#category-nav"
-    );
-
-  if (!navigation) {
-    return;
-  }
-
-  const allButton = `
-    <button
-      type="button"
-      class="category-filter ${
-        state.activeCategory === "todos"
-          ? "active"
-          : ""
-      }"
-      data-category-filter="todos"
-      aria-pressed="${
-        state.activeCategory === "todos"
-          ? "true"
-          : "false"
-      }"
-    >
-      <span aria-hidden="true">▦</span>
-      Todos
-    </button>
-  `;
-
-  const categoryButtons =
-    state.categories
-      .map((category) => {
-        const isActive =
-          state.activeCategory ===
-          category.key;
-
-        return `
-          <button
-            type="button"
-            class="category-filter ${
-              isActive
-                ? "active"
-                : ""
-            }"
-            data-category-filter="${escapeHTML(
-              category.key
-            )}"
-            aria-pressed="${
-              isActive
-                ? "true"
-                : "false"
-            }"
-          >
-            ${escapeHTML(
-              category.name
-            )}
-          </button>
-        `;
-      })
-      .join("");
-
-  navigation.innerHTML =
-    allButton +
-    categoryButtons;
-
-  navigation
-    .querySelectorAll(
-      "[data-category-filter]"
-    )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        () => {
-          state.activeCategory =
-            button.dataset
-              .categoryFilter ||
-            "todos";
-
-          renderCategoryNavigation();
-          renderMenu();
-
-          scrollSelectedCategoryIntoView();
-        }
-      );
-    });
-}
-
-/**
- * Mantiene visible el filtro seleccionado.
- */
-function scrollSelectedCategoryIntoView() {
-  const activeButton =
-    document.querySelector(
-      ".category-filter.active"
-    );
-
-  if (!activeButton) {
-    return;
-  }
-
-  activeButton.scrollIntoView({
-    behavior: "smooth",
-    block: "nearest",
-    inline: "center"
-  });
-}
-
-/**
- * Renderiza productos según categoría y búsqueda.
- */
-function renderMenu() {
-  const searchInput =
-    document.querySelector(
-      "#search"
-    );
-
-  const container =
-    document.querySelector(
-      "#menu-container"
-    );
-
-  const resultsLabel =
-    document.querySelector(
-      "#menu-results-label"
-    );
-
-  if (!container) {
-    return;
-  }
-
-  const query = String(
-    searchInput?.value || ""
-  )
-    .trim()
-    .toLowerCase();
-
-  const filteredProducts =
-    state.menu.filter((product) => {
-      const categoryName =
-        product.categoria ||
-        product.categorias?.nombre ||
-        "Otros";
-
-      const categoryKey =
-        normalizeCategory(
-          categoryName
-        );
-
-      const matchesCategory =
-        state.activeCategory ===
-          "todos" ||
-        categoryKey ===
-          state.activeCategory;
-
-      const searchableText = `
-        ${product.nombre || ""}
-        ${product.descripcion || ""}
-        ${categoryName}
-      `.toLowerCase();
-
-      const matchesSearch =
-        !query ||
-        searchableText.includes(query);
-
-      return (
-        matchesCategory &&
-        matchesSearch
-      );
-    });
-
-  if (resultsLabel) {
-    const selectedCategory =
-      state.activeCategory ===
-      "todos"
-        ? "Todos los productos"
-        : state.categories.find(
-            (category) =>
-              category.key ===
-              state.activeCategory
-          )?.name ||
-          "Productos";
-
-    resultsLabel.textContent =
-      `${selectedCategory} · ${filteredProducts.length}`;
-  }
-
-  if (
-    filteredProducts.length === 0
-  ) {
-    container.innerHTML = `
-      <div class="menu-empty">
-        <strong>
-          No se encontraron productos.
-        </strong>
-
-        <p>
-          Prueba otra categoría o cambia el texto de búsqueda.
-        </p>
-      </div>
-    `;
-
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="products-grid">
-      ${filteredProducts
-        .map(createProductCard)
-        .join("")}
-    </div>
-  `;
-
-  container
-    .querySelectorAll(
-      "[data-add-product]"
-    )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        () => {
-          addProduct(
-            button.dataset
-              .addProduct
-          );
-        }
-      );
-    });
-}
-
-/**
- * Genera una tarjeta de producto.
- *
- * @param {object} product
- * @returns {string}
- */
-function createProductCard(product) {
-  const imageHTML =
-    product.imagen_url
-      ? `
-        <div class="product-card-image-wrapper">
-          <img
-            class="product-card-image"
-            src="${escapeHTML(
-              product.imagen_url
-            )}"
-            alt="${escapeHTML(
-              product.nombre
-            )}"
-            loading="lazy"
-            decoding="async"
-          >
-        </div>
-      `
-      : `
-        <div
-          class="product-card-image-wrapper product-card-image-empty"
-          aria-hidden="true"
-        >
-          <span>🔥</span>
-        </div>
-      `;
-
-  return `
-    <article class="product-card">
-      ${imageHTML}
-
-      <div class="product-card-content">
-        <span class="product-card-category">
-          ${escapeHTML(
-            product.categoria ||
-            product.categorias?.nombre ||
-            "Otros"
-          )}
-        </span>
-
-        <h3>
-          ${escapeHTML(
-            product.nombre
-          )}
-        </h3>
-
-        <p>
-          ${escapeHTML(
-            product.descripcion ||
-            "Preparado al momento."
-          )}
-        </p>
-      </div>
-
-      <div class="product-card-footer">
-        <strong>
-          ${money(
-            product.precio
-          )}
-        </strong>
-
-        <button
-          type="button"
-          data-add-product="${escapeHTML(
-            product.id
-          )}"
-        >
-          Agregar
-        </button>
-      </div>
-    </article>
-  `;
-}
-
-/**
- * Carga mesas activas.
- *
- * @returns {Promise<void>}
- */
-async function loadTables() {
-  const {
-    data,
-    error
-  } = await window.toscanaSupabase
-    .from("mesas")
-    .select(
-      "id,numero,nombre,capacidad"
-    )
-    .eq("activa", true)
-    .order("numero");
-
-  if (error) {
-    console.error(
-      "No se pudieron cargar las mesas:",
-      error
-    );
-
-    state.tables = [];
-
-    throw new Error(
-      "No fue posible cargar las mesas."
-    );
-  }
-
-  state.tables =
-    Array.isArray(data)
-      ? data
-      : [];
-
-  renderTableOptions();
-}
-
-/**
- * Renderiza opciones de mesa.
- */
-function renderTableOptions() {
-  const select =
-    document.querySelector(
-      "#table-select"
-    );
-
-  if (!select) {
-    return;
-  }
-
-  if (state.tables.length === 0) {
-    select.innerHTML = `
-      <option value="">
-        No hay mesas disponibles
-      </option>
-    `;
-
-    return;
-  }
-
-  select.innerHTML = `
-    <option value="">
-      Selecciona una mesa
-    </option>
-
-    ${state.tables
-      .map((table) => {
-        const label =
-          table.nombre ||
-          `Mesa ${table.numero}`;
-
-        return `
-          <option value="${escapeHTML(
-            table.id
-          )}">
-            ${escapeHTML(label)}
-          </option>
-        `;
-      })
-      .join("")}
-  `;
-}
-
-/**
- * Aplica configuración de URL.
+ * Aplica el modo detectado en la URL.
  */
 function applyURLConfiguration() {
-  if (state.adminMode) {
+  if (appState.adminMode) {
     enableManualOrderMode();
     renderAdminModeNotice();
     return;
@@ -727,7 +235,7 @@ function applyURLConfiguration() {
 }
 
 /**
- * Activa selección manual.
+ * Habilita la selección manual.
  */
 function enableManualOrderMode() {
   const orderType =
@@ -748,11 +256,67 @@ function enableManualOrderMode() {
     tableSelect.disabled = false;
   }
 
-  state.qrTable = null;
+  appState.qrTable = null;
 }
 
 /**
- * Muestra aviso de toma manual.
+ * Fija la mesa obtenida desde el QR.
+ */
+function applyQRTable() {
+  if (!appState.qrTableNumber) {
+    enableManualOrderMode();
+    return;
+  }
+
+  const table =
+    appState.tables.find(
+      (item) =>
+        Number(item.numero) ===
+        Number(
+          appState.qrTableNumber
+        )
+    );
+
+  if (!table) {
+    showOrderMessage(
+      `La Mesa ${appState.qrTableNumber} no existe o está desactivada.`
+    );
+
+    appState.qrTable = null;
+    enableManualOrderMode();
+
+    return;
+  }
+
+  appState.qrTable = table;
+
+  const orderType =
+    document.querySelector(
+      "#order-type"
+    );
+
+  const tableSelect =
+    document.querySelector(
+      "#table-select"
+    );
+
+  if (orderType) {
+    orderType.value = "mesa";
+    orderType.disabled = true;
+  }
+
+  if (tableSelect) {
+    tableSelect.value =
+      String(table.id);
+
+    tableSelect.disabled = true;
+  }
+
+  renderQRTableNotice();
+}
+
+/**
+ * Muestra aviso del modo de toma manual.
  */
 function renderAdminModeNotice() {
   const tableField =
@@ -784,65 +348,10 @@ function renderAdminModeNotice() {
 }
 
 /**
- * Fija la mesa procedente del QR.
- */
-function applyQRTable() {
-  if (!state.qrTableNumber) {
-    enableManualOrderMode();
-    return;
-  }
-
-  const table =
-    state.tables.find(
-      (item) =>
-        Number(item.numero) ===
-        Number(
-          state.qrTableNumber
-        )
-    );
-
-  if (!table) {
-    showMessage(
-      `La Mesa ${state.qrTableNumber} no existe o está desactivada.`
-    );
-
-    state.qrTable = null;
-    enableManualOrderMode();
-    return;
-  }
-
-  state.qrTable = table;
-
-  const orderType =
-    document.querySelector(
-      "#order-type"
-    );
-
-  const tableSelect =
-    document.querySelector(
-      "#table-select"
-    );
-
-  if (orderType) {
-    orderType.value = "mesa";
-    orderType.disabled = true;
-  }
-
-  if (tableSelect) {
-    tableSelect.value =
-      String(table.id);
-
-    tableSelect.disabled = true;
-  }
-
-  renderQRTableNotice();
-}
-
-/**
- * Muestra mesa detectada.
+ * Muestra aviso de mesa detectada.
  */
 function renderQRTableNotice() {
-  if (!state.qrTable) {
+  if (!appState.qrTable) {
     return;
   }
 
@@ -857,9 +366,9 @@ function renderQRTableNotice() {
 
   removeModeNotices();
 
-  const label =
-    state.qrTable.nombre ||
-    `Mesa ${state.qrTable.numero}`;
+  const tableLabel =
+    appState.qrTable.nombre ||
+    `Mesa ${appState.qrTable.numero}`;
 
   const notice =
     document.createElement("p");
@@ -871,7 +380,7 @@ function renderQRTableNotice() {
     "qr-table-notice";
 
   notice.textContent =
-    `${label} identificada automáticamente mediante el código QR.`;
+    `${tableLabel} identificada automáticamente mediante el código QR.`;
 
   tableField.appendChild(
     notice
@@ -897,6 +406,845 @@ function removeModeNotices() {
   });
 }
 
+/* =========================================================
+   MENÚ Y CATEGORÍAS
+   ========================================================= */
+
+/**
+ * Carga el menú desde Supabase.
+ *
+ * @returns {Promise<void>}
+ */
+async function loadMenu() {
+  if (appState.loadingMenu) {
+    return;
+  }
+
+  appState.loadingMenu = true;
+
+  try {
+    const {
+      data,
+      error
+    } = await window.toscanaSupabase
+      .from("productos")
+      .select(`
+        id,
+        nombre,
+        descripcion,
+        precio,
+        categoria_id,
+        imagen_url,
+        categorias (
+          id,
+          nombre,
+          orden
+        )
+      `)
+      .eq("activo", true)
+      .eq("disponible", true)
+      .order("nombre");
+
+    if (error) {
+      console.warn(
+        "No se pudo cargar el menú desde Supabase. Se intentará utilizar el catálogo local.",
+        error
+      );
+
+      await loadFallbackMenu();
+    } else {
+      appState.menu =
+        Array.isArray(data)
+          ? data.map(
+              normalizeSupabaseProduct
+            )
+          : [];
+    }
+
+    buildCategories();
+    renderCategoryNavigation();
+    renderMenu();
+  } catch (error) {
+    console.error(
+      "Error al cargar el menú:",
+      error
+    );
+
+    appState.menu = [];
+    appState.categories = [];
+
+    renderMenuError(
+      error?.message ||
+      "No fue posible cargar el catálogo."
+    );
+
+    throw error;
+  } finally {
+    appState.loadingMenu = false;
+  }
+}
+
+/**
+ * Normaliza un producto recibido desde Supabase.
+ *
+ * @param {object} product
+ * @returns {object}
+ */
+function normalizeSupabaseProduct(product) {
+  return {
+    ...product,
+
+    id:
+      product.id,
+
+    nombre:
+      product.nombre ||
+      "Producto",
+
+    descripcion:
+      product.descripcion ||
+      "",
+
+    precio:
+      Number(
+        product.precio || 0
+      ),
+
+    categoria:
+      product.categorias?.nombre ||
+      "Otros",
+
+    categoria_orden:
+      Number(
+        product.categorias?.orden ??
+        999
+      ),
+
+    imagen_url:
+      product.imagen_url ||
+      null
+  };
+}
+
+/**
+ * Carga el menú local de respaldo.
+ *
+ * @returns {Promise<void>}
+ */
+async function loadFallbackMenu() {
+  const response = await fetch(
+    "data/menu.json",
+    {
+      cache: "no-store"
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      "No fue posible cargar el menú."
+    );
+  }
+
+  const fallback =
+    await response.json();
+
+  const fallbackProducts =
+    Array.isArray(
+      fallback.productos
+    )
+      ? fallback.productos
+      : [];
+
+  appState.menu =
+    fallbackProducts.map(
+      (product) => ({
+        ...product,
+
+        id:
+          product.id,
+
+        nombre:
+          product.nombre ||
+          "Producto",
+
+        descripcion:
+          product.descripcion ||
+          "",
+
+        precio:
+          Number(
+            product.precio || 0
+          ),
+
+        categoria:
+          product.categoria ||
+          product.categorias?.nombre ||
+          "Otros",
+
+        categoria_orden:
+          Number(
+            product.categoria_orden ??
+            product.categorias?.orden ??
+            999
+          ),
+
+        imagen_url:
+          product.imagen_url ||
+          null
+      })
+    );
+}
+
+/**
+ * Construye las categorías únicas.
+ */
+function buildCategories() {
+  const categoryMap =
+    new Map();
+
+  appState.menu.forEach(
+    (product) => {
+      const categoryName =
+        product.categoria ||
+        "Otros";
+
+      const categoryKey =
+        normalizeCategory(
+          categoryName
+        );
+
+      const categoryOrder =
+        Number(
+          product.categoria_orden ??
+          999
+        );
+
+      if (
+        !categoryMap.has(
+          categoryKey
+        )
+      ) {
+        categoryMap.set(
+          categoryKey,
+          {
+            key:
+              categoryKey,
+            name:
+              categoryName,
+            order:
+              categoryOrder
+          }
+        );
+      }
+    }
+  );
+
+  appState.categories =
+    Array.from(
+      categoryMap.values()
+    ).sort(
+      (
+        firstCategory,
+        secondCategory
+      ) => {
+        if (
+          firstCategory.order !==
+          secondCategory.order
+        ) {
+          return (
+            firstCategory.order -
+            secondCategory.order
+          );
+        }
+
+        return firstCategory.name.localeCompare(
+          secondCategory.name,
+          "es"
+        );
+      }
+    );
+
+  const activeCategoryExists =
+    appState.activeCategory ===
+      "todos" ||
+    appState.categories.some(
+      (category) =>
+        category.key ===
+        appState.activeCategory
+    );
+
+  if (!activeCategoryExists) {
+    appState.activeCategory =
+      "todos";
+  }
+}
+
+/**
+ * Renderiza los botones de categorías.
+ */
+function renderCategoryNavigation() {
+  const navigation =
+    document.querySelector(
+      "#category-nav"
+    );
+
+  if (!navigation) {
+    return;
+  }
+
+  const allButton =
+    createCategoryButton({
+      key: "todos",
+      name: "Todos",
+      icon: "▦"
+    });
+
+  const categoryButtons =
+    appState.categories
+      .map(
+        (category) =>
+          createCategoryButton({
+            key:
+              category.key,
+            name:
+              category.name,
+            icon:
+              ""
+          })
+      )
+      .join("");
+
+  navigation.innerHTML =
+    allButton +
+    categoryButtons;
+
+  navigation
+    .querySelectorAll(
+      "[data-category-filter]"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          const selectedCategory =
+            button.dataset
+              .categoryFilter ||
+            "todos";
+
+          if (
+            selectedCategory ===
+            appState.activeCategory
+          ) {
+            return;
+          }
+
+          appState.activeCategory =
+            selectedCategory;
+
+          renderCategoryNavigation();
+          renderMenu();
+
+          window.requestAnimationFrame(
+            scrollActiveCategoryIntoView
+          );
+        }
+      );
+    });
+}
+
+/**
+ * Genera un botón de categoría.
+ *
+ * @param {object} options
+ * @param {string} options.key
+ * @param {string} options.name
+ * @param {string} options.icon
+ * @returns {string}
+ */
+function createCategoryButton({
+  key,
+  name,
+  icon
+}) {
+  const isActive =
+    appState.activeCategory ===
+    key;
+
+  const iconHTML =
+    icon
+      ? `
+        <span aria-hidden="true">
+          ${escapeHTML(icon)}
+        </span>
+      `
+      : "";
+
+  return `
+    <button
+      type="button"
+      class="category-filter ${
+        isActive
+          ? "active"
+          : ""
+      }"
+      data-category-filter="${escapeHTML(
+        key
+      )}"
+      aria-pressed="${
+        isActive
+          ? "true"
+          : "false"
+      }"
+    >
+      ${iconHTML}
+
+      ${escapeHTML(name)}
+    </button>
+  `;
+}
+
+/**
+ * Mantiene visible la categoría seleccionada.
+ */
+function scrollActiveCategoryIntoView() {
+  const activeButton =
+    document.querySelector(
+      ".category-filter.active"
+    );
+
+  if (!activeButton) {
+    return;
+  }
+
+  activeButton.scrollIntoView({
+    behavior: "smooth",
+    block: "nearest",
+    inline: "center"
+  });
+}
+
+/**
+ * Filtra y renderiza productos.
+ */
+function renderMenu() {
+  const container =
+    document.querySelector(
+      "#menu-container"
+    );
+
+  const searchInput =
+    document.querySelector(
+      "#search"
+    );
+
+  const resultsLabel =
+    document.querySelector(
+      "#menu-results-label"
+    );
+
+  if (!container) {
+    return;
+  }
+
+  const query =
+    normalizeSearchText(
+      searchInput?.value || ""
+    );
+
+  const filteredProducts =
+    appState.menu.filter(
+      (product) => {
+        const categoryName =
+          product.categoria ||
+          "Otros";
+
+        const categoryKey =
+          normalizeCategory(
+            categoryName
+          );
+
+        const matchesCategory =
+          appState.activeCategory ===
+            "todos" ||
+          categoryKey ===
+            appState.activeCategory;
+
+        const searchableText =
+          normalizeSearchText(`
+            ${product.nombre || ""}
+            ${product.descripcion || ""}
+            ${categoryName}
+          `);
+
+        const matchesSearch =
+          !query ||
+          searchableText.includes(
+            query
+          );
+
+        return (
+          matchesCategory &&
+          matchesSearch
+        );
+      }
+    );
+
+  updateResultsLabel(
+    filteredProducts.length,
+    resultsLabel
+  );
+
+  if (
+    filteredProducts.length === 0
+  ) {
+    container.innerHTML = `
+      <div class="menu-empty">
+        <strong>
+          No se encontraron productos.
+        </strong>
+
+        <p>
+          Prueba otra categoría o cambia el texto de búsqueda.
+        </p>
+      </div>
+    `;
+
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="products-grid">
+      ${filteredProducts
+        .map(createProductCard)
+        .join("")}
+    </div>
+  `;
+
+  attachProductEvents(
+    container
+  );
+}
+
+/**
+ * Actualiza el encabezado de resultados.
+ *
+ * @param {number} count
+ * @param {HTMLElement|null} resultsLabel
+ */
+function updateResultsLabel(
+  count,
+  resultsLabel
+) {
+  if (!resultsLabel) {
+    return;
+  }
+
+  const categoryName =
+    appState.activeCategory ===
+      "todos"
+      ? "Todos los productos"
+      : appState.categories.find(
+          (category) =>
+            category.key ===
+            appState.activeCategory
+        )?.name ||
+        "Productos";
+
+  const productText =
+    count === 1
+      ? "1 producto"
+      : `${count} productos`;
+
+  resultsLabel.textContent =
+    `${categoryName} · ${productText}`;
+}
+
+/**
+ * Genera una tarjeta de producto.
+ *
+ * @param {object} product
+ * @returns {string}
+ */
+function createProductCard(product) {
+  const imageHTML =
+    product.imagen_url
+      ? `
+        <div class="product-card-image-wrapper">
+          <img
+            class="product-card-image"
+            src="${escapeHTML(
+              product.imagen_url
+            )}"
+            alt="${escapeHTML(
+              product.nombre
+            )}"
+            loading="lazy"
+            decoding="async"
+            onerror="this.parentElement.classList.add('product-card-image-empty'); this.remove();"
+          >
+        </div>
+      `
+      : `
+        <div
+          class="product-card-image-wrapper product-card-image-empty"
+          aria-hidden="true"
+        >
+          <span>🔥</span>
+        </div>
+      `;
+
+  return `
+    <article
+      class="product-card"
+      data-product-card="${escapeHTML(
+        product.id
+      )}"
+    >
+      ${imageHTML}
+
+      <div class="product-card-content">
+        <span class="product-card-category">
+          ${escapeHTML(
+            product.categoria ||
+            "Otros"
+          )}
+        </span>
+
+        <h3>
+          ${escapeHTML(
+            product.nombre
+          )}
+        </h3>
+
+        <p>
+          ${escapeHTML(
+            product.descripcion ||
+            "Preparado al momento."
+          )}
+        </p>
+      </div>
+
+      <div class="product-card-footer">
+        <strong>
+          ${money(
+            product.precio
+          )}
+        </strong>
+
+        <button
+          type="button"
+          data-add-product="${escapeHTML(
+            product.id
+          )}"
+          aria-label="Agregar ${escapeHTML(
+            product.nombre
+          )} al pedido"
+        >
+          Agregar
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+/**
+ * Registra eventos de los productos.
+ *
+ * @param {HTMLElement} container
+ */
+function attachProductEvents(container) {
+  container
+    .querySelectorAll(
+      "[data-add-product]"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          const productId =
+            button.dataset
+              .addProduct;
+
+          addProduct(
+            productId
+          );
+
+          animateAddButton(
+            button
+          );
+        }
+      );
+    });
+}
+
+/**
+ * Muestra una respuesta breve al agregar.
+ *
+ * @param {HTMLButtonElement} button
+ */
+function animateAddButton(button) {
+  const originalText =
+    button.textContent;
+
+  button.textContent =
+    "Agregado";
+
+  button.disabled =
+    true;
+
+  window.setTimeout(
+    () => {
+      button.textContent =
+        originalText;
+
+      button.disabled =
+        false;
+    },
+    550
+  );
+}
+
+/**
+ * Muestra un error en el área del menú.
+ *
+ * @param {string} message
+ */
+function renderMenuError(message) {
+  const container =
+    document.querySelector(
+      "#menu-container"
+    );
+
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="menu-empty">
+      <strong>
+        No fue posible cargar el menú.
+      </strong>
+
+      <p>
+        ${escapeHTML(
+          message
+        )}
+      </p>
+    </div>
+  `;
+}
+
+/* =========================================================
+   MESAS
+   ========================================================= */
+
+/**
+ * Carga las mesas activas.
+ *
+ * @returns {Promise<void>}
+ */
+async function loadTables() {
+  if (appState.loadingTables) {
+    return;
+  }
+
+  appState.loadingTables = true;
+
+  try {
+    const {
+      data,
+      error
+    } = await window.toscanaSupabase
+      .from("mesas")
+      .select(
+        "id,numero,nombre,capacidad"
+      )
+      .eq("activa", true)
+      .order("numero");
+
+    if (error) {
+      console.error(
+        "Error al cargar mesas:",
+        error
+      );
+
+      throw new Error(
+        "No fue posible cargar las mesas."
+      );
+    }
+
+    appState.tables =
+      Array.isArray(data)
+        ? data
+        : [];
+
+    renderTableOptions();
+  } finally {
+    appState.loadingTables =
+      false;
+  }
+}
+
+/**
+ * Renderiza el selector de mesas.
+ */
+function renderTableOptions() {
+  const tableSelect =
+    document.querySelector(
+      "#table-select"
+    );
+
+  if (!tableSelect) {
+    return;
+  }
+
+  if (
+    appState.tables.length === 0
+  ) {
+    tableSelect.innerHTML = `
+      <option value="">
+        No hay mesas disponibles
+      </option>
+    `;
+
+    return;
+  }
+
+  tableSelect.innerHTML = `
+    <option value="">
+      Selecciona una mesa
+    </option>
+
+    ${appState.tables
+      .map((table) => {
+        const tableLabel =
+          table.nombre ||
+          `Mesa ${table.numero}`;
+
+        const capacityText =
+          table.capacidad
+            ? ` · ${table.capacidad} personas`
+            : "";
+
+        return `
+          <option value="${escapeHTML(
+            table.id
+          )}">
+            ${escapeHTML(
+              tableLabel +
+              capacityText
+            )}
+          </option>
+        `;
+      })
+      .join("")}
+  `;
+}
+
+/* =========================================================
+   CARRITO
+   ========================================================= */
+
 /**
  * Agrega un producto al carrito.
  *
@@ -904,7 +1252,7 @@ function removeModeNotices() {
  */
 function addProduct(productId) {
   const product =
-    state.menu.find(
+    appState.menu.find(
       (item) =>
         String(item.id) ===
         String(productId)
@@ -915,7 +1263,7 @@ function addProduct(productId) {
   }
 
   const existingItem =
-    state.cart.find(
+    appState.cart.find(
       (item) =>
         String(
           item.producto_id
@@ -926,15 +1274,21 @@ function addProduct(productId) {
   if (existingItem) {
     existingItem.cantidad += 1;
   } else {
-    state.cart.push({
+    appState.cart.push({
       producto_id:
         product.id,
+
       nombre:
         product.nombre,
+
       precio:
-        Number(product.precio),
+        Number(
+          product.precio || 0
+        ),
+
       cantidad:
         1,
+
       observaciones:
         ""
     });
@@ -945,7 +1299,7 @@ function addProduct(productId) {
 }
 
 /**
- * Cambia cantidad de producto.
+ * Cambia la cantidad de un producto.
  *
  * @param {string|number} productId
  * @param {number} variation
@@ -955,7 +1309,7 @@ function changeQuantity(
   variation
 ) {
   const item =
-    state.cart.find(
+    appState.cart.find(
       (product) =>
         String(
           product.producto_id
@@ -967,11 +1321,12 @@ function changeQuantity(
     return;
   }
 
-  item.cantidad += variation;
+  item.cantidad +=
+    variation;
 
   if (item.cantidad <= 0) {
-    state.cart =
-      state.cart.filter(
+    appState.cart =
+      appState.cart.filter(
         (product) =>
           String(
             product.producto_id
@@ -985,15 +1340,15 @@ function changeQuantity(
 }
 
 /**
- * Renderiza carrito.
+ * Renderiza el carrito.
  */
 function renderCart() {
-  const container =
+  const cartContainer =
     document.querySelector(
       "#cart-items"
     );
 
-  const emptyMessage =
+  const emptyState =
     document.querySelector(
       "#cart-empty"
     );
@@ -1009,65 +1364,112 @@ function renderCart() {
     );
 
   if (
-    !container ||
-    !emptyMessage ||
+    !cartContainer ||
+    !emptyState ||
     !totalElement
   ) {
     return;
   }
 
-  emptyMessage.hidden =
-    state.cart.length > 0;
+  emptyState.hidden =
+    appState.cart.length > 0;
 
-  container.innerHTML =
-    state.cart
-      .map((item) => `
-        <article class="cart-item">
-          <div class="cart-item-info">
-            <strong>
-              ${escapeHTML(
-                item.nombre
-              )}
-            </strong>
+  if (
+    appState.cart.length === 0
+  ) {
+    cartContainer.innerHTML =
+      "";
+  } else {
+    cartContainer.innerHTML =
+      appState.cart
+        .map(createCartItem)
+        .join("");
 
-            <span>
-              ${money(
-                item.precio
-              )} c/u
-            </span>
-          </div>
+    attachCartEvents(
+      cartContainer
+    );
+  }
 
-          <div class="cart-item-controls">
-            <button
-              type="button"
-              data-minus="${escapeHTML(
-                item.producto_id
-              )}"
-              aria-label="Reducir cantidad"
-            >
-              −
-            </button>
+  const totals =
+    calculateCartTotals();
 
-            <strong>
-              ${Number(
-                item.cantidad
-              )}
-            </strong>
+  totalElement.textContent =
+    money(
+      totals.amount
+    );
 
-            <button
-              type="button"
-              data-plus="${escapeHTML(
-                item.producto_id
-              )}"
-              aria-label="Aumentar cantidad"
-            >
-              +
-            </button>
-          </div>
-        </article>
-      `)
-      .join("");
+  if (countElement) {
+    countElement.textContent =
+      String(
+        totals.quantity
+      );
+  }
+}
 
+/**
+ * Genera un producto del carrito.
+ *
+ * @param {object} item
+ * @returns {string}
+ */
+function createCartItem(item) {
+  return `
+    <article class="cart-item">
+      <div class="cart-item-info">
+        <strong>
+          ${escapeHTML(
+            item.nombre
+          )}
+        </strong>
+
+        <span>
+          ${money(
+            item.precio
+          )} c/u
+        </span>
+      </div>
+
+      <div class="cart-item-controls">
+        <button
+          type="button"
+          data-minus="${escapeHTML(
+            item.producto_id
+          )}"
+          aria-label="Reducir cantidad de ${escapeHTML(
+            item.nombre
+          )}"
+        >
+          −
+        </button>
+
+        <strong>
+          ${Number(
+            item.cantidad
+          )}
+        </strong>
+
+        <button
+          type="button"
+          data-plus="${escapeHTML(
+            item.producto_id
+          )}"
+          aria-label="Aumentar cantidad de ${escapeHTML(
+            item.nombre
+          )}"
+        >
+          +
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+/**
+ * Registra eventos del carrito.
+ *
+ * @param {HTMLElement} container
+ */
+function attachCartEvents(container) {
   container
     .querySelectorAll(
       "[data-minus]"
@@ -1099,35 +1501,171 @@ function renderCart() {
         }
       );
     });
+}
 
-  const total =
-    state.cart.reduce(
-      (sum, item) =>
-        sum +
-        Number(item.precio) *
-        Number(item.cantidad),
-      0
+/**
+ * Calcula totales del carrito.
+ *
+ * @returns {{amount:number, quantity:number}}
+ */
+function calculateCartTotals() {
+  return appState.cart.reduce(
+    (totals, item) => {
+      const price =
+        Number(
+          item.precio || 0
+        );
+
+      const quantity =
+        Number(
+          item.cantidad || 0
+        );
+
+      totals.amount +=
+        price * quantity;
+
+      totals.quantity +=
+        quantity;
+
+      return totals;
+    },
+    {
+      amount: 0,
+      quantity: 0
+    }
+  );
+}
+
+/**
+ * Vacía el carrito.
+ */
+function clearCart() {
+  appState.cart = [];
+  saveCart();
+  renderCart();
+}
+
+/**
+ * Guarda el carrito.
+ */
+function saveCart() {
+  try {
+    localStorage.setItem(
+      "toscana_cart",
+      JSON.stringify(
+        appState.cart
+      )
     );
-
-  const quantity =
-    state.cart.reduce(
-      (sum, item) =>
-        sum +
-        Number(item.cantidad),
-      0
+  } catch (error) {
+    console.warn(
+      "No fue posible guardar el carrito:",
+      error
     );
-
-  totalElement.textContent =
-    money(total);
-
-  if (countElement) {
-    countElement.textContent =
-      String(quantity);
   }
 }
 
 /**
- * Muestra campos según el tipo de pedido.
+ * Recupera el carrito.
+ */
+function restoreCart() {
+  try {
+    const storedValue =
+      localStorage.getItem(
+        "toscana_cart"
+      );
+
+    if (!storedValue) {
+      appState.cart = [];
+      return;
+    }
+
+    const storedCart =
+      JSON.parse(
+        storedValue
+      );
+
+    appState.cart =
+      Array.isArray(
+        storedCart
+      )
+        ? storedCart
+            .filter(
+              isValidStoredCartItem
+            )
+            .map(
+              normalizeStoredCartItem
+            )
+        : [];
+  } catch (error) {
+    console.warn(
+      "No fue posible recuperar el carrito:",
+      error
+    );
+
+    appState.cart = [];
+  }
+}
+
+/**
+ * Valida un registro guardado.
+ *
+ * @param {object} item
+ * @returns {boolean}
+ */
+function isValidStoredCartItem(item) {
+  return Boolean(
+    item &&
+    item.producto_id !==
+      undefined &&
+    item.nombre &&
+    Number(item.cantidad) > 0
+  );
+}
+
+/**
+ * Normaliza un producto guardado.
+ *
+ * @param {object} item
+ * @returns {object}
+ */
+function normalizeStoredCartItem(item) {
+  return {
+    producto_id:
+      item.producto_id,
+
+    nombre:
+      String(
+        item.nombre
+      ),
+
+    precio:
+      Number(
+        item.precio || 0
+      ),
+
+    cantidad:
+      Math.max(
+        1,
+        Number.parseInt(
+          item.cantidad,
+          10
+        ) || 1
+      ),
+
+    observaciones:
+      String(
+        item.observaciones ||
+        ""
+      )
+  };
+}
+
+/* =========================================================
+   FORMULARIO DEL PEDIDO
+   ========================================================= */
+
+/**
+ * Muestra u oculta campos según el tipo de pedido.
  */
 function toggleOrderFields() {
   const orderType =
@@ -1153,18 +1691,18 @@ function toggleOrderFields() {
     return;
   }
 
-  const type =
+  const selectedType =
     orderType.value;
 
   tableField.hidden =
-    type !== "mesa";
+    selectedType !== "mesa";
 
   addressField.hidden =
-    type !== "delivery";
+    selectedType !== "delivery";
 
   if (
-    state.qrTable &&
-    !state.adminMode
+    appState.qrTable &&
+    !appState.adminMode
   ) {
     orderType.value =
       "mesa";
@@ -1181,19 +1719,118 @@ function toggleOrderFields() {
 }
 
 /**
- * Envía el pedido.
+ * Registra el pedido.
  *
  * @returns {Promise<void>}
  */
 async function submitOrder() {
-  clearMessage();
+  if (appState.submittingOrder) {
+    return;
+  }
 
-  if (state.cart.length === 0) {
-    showMessage(
-      "Agrega al menos un producto."
+  clearOrderMessage();
+
+  const validation =
+    validateOrder();
+
+  if (!validation.valid) {
+    showOrderMessage(
+      validation.message
     );
 
     return;
+  }
+
+  const submitButton =
+    document.querySelector(
+      "#submit-order"
+    );
+
+  appState.submittingOrder =
+    true;
+
+  setButtonLoading(
+    submitButton,
+    true,
+    "Registrando…"
+  );
+
+  try {
+    const payload =
+      buildOrderPayload(
+        validation
+      );
+
+    const {
+      data,
+      error
+    } =
+      await window.toscanaSupabase.rpc(
+        "crear_pedido",
+        payload
+      );
+
+    if (error) {
+      console.error(
+        "Error de Supabase al registrar el pedido:",
+        error
+      );
+
+      throw new Error(
+        error.message ||
+        "No se pudo registrar el pedido."
+      );
+    }
+
+    if (!data) {
+      throw new Error(
+        "El pedido fue procesado sin una respuesta válida."
+      );
+    }
+
+    persistLastOrderToken(
+      data.token_consulta
+    );
+
+    renderSuccessDialog(
+      data
+    );
+  } catch (error) {
+    console.error(
+      "Error al registrar el pedido:",
+      error
+    );
+
+    showOrderMessage(
+      error?.message ||
+      "No se pudo registrar el pedido."
+    );
+  } finally {
+    appState.submittingOrder =
+      false;
+
+    setButtonLoading(
+      submitButton,
+      false,
+      "Confirmar pedido"
+    );
+  }
+}
+
+/**
+ * Valida los datos del pedido.
+ *
+ * @returns {object}
+ */
+function validateOrder() {
+  if (
+    appState.cart.length === 0
+  ) {
+    return {
+      valid: false,
+      message:
+        "Agrega al menos un producto."
+    };
   }
 
   const orderTypeElement =
@@ -1206,166 +1843,196 @@ async function submitOrder() {
       "#table-select"
     );
 
-  const addressInput =
-    document.querySelector(
+  const address =
+    getInputValue(
       "#delivery-address"
     );
 
-  const submitButton =
-    document.querySelector(
-      "#submit-order"
-    );
-
   const orderType =
-    state.qrTable &&
-    !state.adminMode
+    appState.qrTable &&
+    !appState.adminMode
       ? "mesa"
       : orderTypeElement?.value;
+
+  if (
+    ![
+      "mesa",
+      "para_llevar",
+      "delivery"
+    ].includes(orderType)
+  ) {
+    return {
+      valid: false,
+      message:
+        "Selecciona un tipo de pedido válido."
+    };
+  }
 
   const tableId =
     orderType === "mesa"
       ? (
-          state.qrTable?.id ||
+          appState.qrTable?.id ||
           tableSelect?.value ||
           null
         )
       : null;
 
-  const address =
-    String(
-      addressInput?.value || ""
-    ).trim();
-
   if (
     orderType === "mesa" &&
     !tableId
   ) {
-    showMessage(
-      "Selecciona una mesa."
-    );
-
-    return;
+    return {
+      valid: false,
+      message:
+        "Selecciona una mesa."
+    };
   }
 
   if (
     orderType === "delivery" &&
     !address
   ) {
-    showMessage(
-      "Registra la dirección de entrega."
-    );
-
-    return;
+    return {
+      valid: false,
+      message:
+        "Registra la dirección de entrega."
+    };
   }
 
-  if (!submitButton) {
+  return {
+    valid: true,
+    orderType,
+    tableId,
+    address
+  };
+}
+
+/**
+ * Construye los parámetros de la RPC.
+ *
+ * @param {object} validation
+ * @returns {object}
+ */
+function buildOrderPayload(
+  validation
+) {
+  return {
+    p_tipo:
+      validation.orderType,
+
+    p_mesa_id:
+      validation.tableId,
+
+    p_cliente_nombre:
+      getInputValue(
+        "#customer-name"
+      ) || null,
+
+    p_cliente_telefono:
+      getInputValue(
+        "#customer-phone"
+      ) || null,
+
+    p_direccion_entrega:
+      validation.orderType ===
+        "delivery"
+        ? validation.address
+        : null,
+
+    p_observaciones:
+      getInputValue(
+        "#order-notes"
+      ) || null,
+
+    p_items:
+      appState.cart.map(
+        (item) => ({
+          producto_id:
+            item.producto_id,
+
+          cantidad:
+            Number(
+              item.cantidad
+            ),
+
+          observaciones:
+            item.observaciones ||
+            null
+        })
+      )
+  };
+}
+
+/**
+ * Guarda el token del último pedido.
+ *
+ * @param {unknown} token
+ */
+function persistLastOrderToken(token) {
+  if (!token) {
     return;
   }
-
-  submitButton.disabled =
-    true;
-
-  submitButton.textContent =
-    "Registrando…";
 
   try {
-    const {
-      data,
-      error
-    } =
-      await window.toscanaSupabase.rpc(
-        "crear_pedido",
-        {
-          p_tipo:
-            orderType,
-          p_mesa_id:
-            tableId,
-          p_cliente_nombre:
-            getInputValue(
-              "#customer-name"
-            ) || null,
-          p_cliente_telefono:
-            getInputValue(
-              "#customer-phone"
-            ) || null,
-          p_direccion_entrega:
-            address || null,
-          p_observaciones:
-            getInputValue(
-              "#order-notes"
-            ) || null,
-          p_items:
-            state.cart.map(
-              (item) => ({
-                producto_id:
-                  item.producto_id,
-                cantidad:
-                  item.cantidad,
-                observaciones:
-                  item.observaciones ||
-                  null
-              })
-            )
-        }
-      );
-
-    if (error) {
-      throw error;
-    }
-
     localStorage.setItem(
       "toscana_ultimo_token",
-      data.token_consulta
+      String(token)
     );
-
-    setText(
-      "#success-ticket",
-      data.ticket
-    );
-
-    setText(
-      "#success-status",
-      pretty(data.estado)
-    );
-
-    setText(
-      "#success-total",
-      money(data.total)
-    );
-
-    const dialog =
-      document.querySelector(
-        "#success-dialog"
-      );
-
-    if (dialog) {
-      dialog.showModal();
-    }
   } catch (error) {
-    console.error(
-      "Error al registrar el pedido:",
+    console.warn(
+      "No fue posible guardar el token del pedido:",
       error
     );
-
-    showMessage(
-      error?.message ||
-      "No se pudo registrar el pedido."
-    );
-  } finally {
-    submitButton.disabled =
-      false;
-
-    submitButton.textContent =
-      "Confirmar pedido";
   }
 }
 
 /**
- * Inicia nuevo pedido.
+ * Abre el diálogo de confirmación.
+ *
+ * @param {object} order
+ */
+function renderSuccessDialog(order) {
+  setText(
+    "#success-ticket",
+    order.ticket ||
+    "—"
+  );
+
+  setText(
+    "#success-status",
+    pretty(
+      order.estado
+    ) ||
+    "Pendiente"
+  );
+
+  setText(
+    "#success-total",
+    money(
+      order.total
+    )
+  );
+
+  const dialog =
+    document.querySelector(
+      "#success-dialog"
+    );
+
+  if (
+    dialog &&
+    !dialog.open
+  ) {
+    dialog.showModal();
+  }
+}
+
+/**
+ * Inicia un pedido nuevo.
  */
 function startNewOrder() {
   clearCart();
   clearCustomerFields();
+  clearOrderMessage();
 
   const dialog =
     document.querySelector(
@@ -1378,19 +2045,20 @@ function startNewOrder() {
 
   applyURLConfiguration();
   toggleOrderFields();
+
+  const menuSection =
+    document.querySelector(
+      ".menu-section"
+    );
+
+  menuSection?.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
 }
 
 /**
- * Vacía carrito.
- */
-function clearCart() {
-  state.cart = [];
-  saveCart();
-  renderCart();
-}
-
-/**
- * Limpia datos del cliente.
+ * Limpia campos del cliente.
  */
 function clearCustomerFields() {
   [
@@ -1410,44 +2078,17 @@ function clearCustomerFields() {
   });
 }
 
-/**
- * Guarda carrito localmente.
- */
-function saveCart() {
-  localStorage.setItem(
-    "toscana_cart",
-    JSON.stringify(state.cart)
-  );
-}
+/* =========================================================
+   UTILIDADES
+   ========================================================= */
 
 /**
- * Restaura carrito.
- */
-function restoreCart() {
-  try {
-    const storedCart =
-      JSON.parse(
-        localStorage.getItem(
-          "toscana_cart"
-        )
-      );
-
-    state.cart =
-      Array.isArray(storedCart)
-        ? storedCart
-        : [];
-  } catch {
-    state.cart = [];
-  }
-}
-
-/**
- * Normaliza categoría.
+ * Normaliza el texto de búsqueda.
  *
  * @param {unknown} value
  * @returns {string}
  */
-function normalizeCategory(value) {
+function normalizeSearchText(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
@@ -1455,7 +2096,17 @@ function normalizeCategory(value) {
     .replace(
       /[\u0300-\u036f]/g,
       ""
-    )
+    );
+}
+
+/**
+ * Normaliza el nombre de categoría.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeCategory(value) {
+  return normalizeSearchText(value)
     .replace(
       /[^a-z0-9]+/g,
       "-"
@@ -1467,7 +2118,7 @@ function normalizeCategory(value) {
 }
 
 /**
- * Obtiene valor de campo.
+ * Obtiene el valor limpio de un campo.
  *
  * @param {string} selector
  * @returns {string}
@@ -1484,43 +2135,7 @@ function getInputValue(selector) {
 }
 
 /**
- * Muestra mensaje.
- *
- * @param {string} text
- */
-function showMessage(text) {
-  const message =
-    document.querySelector(
-      "#order-message"
-    );
-
-  if (!message) {
-    return;
-  }
-
-  message.textContent = text;
-  message.hidden = false;
-}
-
-/**
- * Limpia mensaje.
- */
-function clearMessage() {
-  const message =
-    document.querySelector(
-      "#order-message"
-    );
-
-  if (!message) {
-    return;
-  }
-
-  message.textContent = "";
-  message.hidden = true;
-}
-
-/**
- * Asigna texto.
+ * Asigna texto a un elemento.
  *
  * @param {string} selector
  * @param {unknown} value
@@ -1538,25 +2153,93 @@ function setText(selector, value) {
 }
 
 /**
- * Formatea moneda.
+ * Controla el estado visual de un botón.
+ *
+ * @param {HTMLButtonElement|null} button
+ * @param {boolean} loading
+ * @param {string} label
+ */
+function setButtonLoading(
+  button,
+  loading,
+  label
+) {
+  if (!button) {
+    return;
+  }
+
+  button.disabled =
+    loading;
+
+  button.textContent =
+    label;
+}
+
+/**
+ * Muestra mensaje del pedido.
+ *
+ * @param {string} message
+ */
+function showOrderMessage(message) {
+  const element =
+    document.querySelector(
+      "#order-message"
+    );
+
+  if (!element) {
+    return;
+  }
+
+  element.textContent =
+    String(message || "");
+
+  element.hidden =
+    false;
+}
+
+/**
+ * Limpia el mensaje del pedido.
+ */
+function clearOrderMessage() {
+  const element =
+    document.querySelector(
+      "#order-message"
+    );
+
+  if (!element) {
+    return;
+  }
+
+  element.textContent = "";
+  element.hidden = true;
+}
+
+/**
+ * Formatea valores monetarios.
  *
  * @param {unknown} value
  * @returns {string}
  */
 function money(value) {
+  const numericValue =
+    Number(value || 0);
+
   return new Intl.NumberFormat(
     "es-EC",
     {
       style: "currency",
-      currency: "USD"
+      currency: "USD",
+      minimumFractionDigits: 2
     }
   ).format(
-    Number(value || 0)
+    Number.isFinite(numericValue)
+      ? numericValue
+      : 0
   );
 }
 
 /**
- * Convierte texto técnico.
+ * Convierte valores técnicos en texto.
  *
  * @param {unknown} value
  * @returns {string}
@@ -1572,7 +2255,7 @@ function pretty(value) {
 }
 
 /**
- * Escapa HTML.
+ * Escapa texto para HTML.
  *
  * @param {unknown} value
  * @returns {string}
@@ -1590,7 +2273,9 @@ function escapeHTML(value) {
           "'": "&#039;"
         };
 
-        return entities[character];
+        return entities[
+          character
+        ];
       }
     );
 }
