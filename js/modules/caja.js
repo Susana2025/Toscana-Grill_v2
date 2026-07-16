@@ -8,14 +8,11 @@
  *
  * Responsabilidades:
  * - Cargar la vista caja.html.
- * - Consultar pedidos activos.
- * - Mostrar pedidos listos y entregados.
+ * - Consultar pedidos listos y entregados.
  * - Marcar pedidos como entregados.
- * - Cerrar pedidos entregados.
- * - Mostrar el total pendiente de los pedidos visibles.
- *
- * En esta etapa no se registran todavía métodos de pago.
- * El cierre representa la finalización administrativa del pedido.
+ * - Cerrar pedidos.
+ * - Mostrar el total pendiente.
+ * - Escuchar cambios mediante Supabase Realtime.
  */
 
 (function initializeCashierModule() {
@@ -24,10 +21,15 @@
     "entregado"
   ];
 
+  const REALTIME_REFRESH_DELAY = 350;
+
   const state = {
     initialized: false,
     loading: false,
+    refreshPending: false,
     updatingOrderId: null,
+    realtimeTimer: null,
+    unsubscribeRealtime: null,
     orders: [],
     callbacks: {
       showMessage: null,
@@ -40,9 +42,6 @@
    * Inicializa el módulo Caja.
    *
    * @param {object} options
-   * @param {Function} options.showMessage
-   * @param {Function} options.clearMessage
-   * @param {Function} options.openOrder
    * @returns {Promise<void>}
    */
   async function initialize(options = {}) {
@@ -74,6 +73,7 @@
     }
 
     setupEvents();
+    setupRealtime();
 
     state.initialized = true;
 
@@ -81,7 +81,7 @@
   }
 
   /**
-   * Valida las dependencias requeridas.
+   * Valida dependencias globales.
    */
   function validateDependencies() {
     if (!window.toscanaSupabase) {
@@ -101,15 +101,20 @@
         "Las utilidades compartidas no están disponibles."
       );
     }
+
+    if (!window.toscanaRealtime) {
+      throw new Error(
+        "El servicio Realtime no está disponible."
+      );
+    }
   }
 
   /**
    * Configura los eventos internos.
    */
   function setupEvents() {
-    const refreshButton = document.querySelector(
-      "#refresh-cashier"
-    );
+    const refreshButton =
+      document.querySelector("#refresh-cashier");
 
     if (refreshButton) {
       refreshButton.addEventListener(
@@ -117,6 +122,78 @@
         refresh
       );
     }
+  }
+
+  /**
+   * Activa la escucha Realtime.
+   */
+  function setupRealtime() {
+    if (state.unsubscribeRealtime) {
+      state.unsubscribeRealtime();
+    }
+
+    state.unsubscribeRealtime =
+      window.toscanaRealtime.subscribe(
+        handleRealtimeChange
+      );
+  }
+
+  /**
+   * Procesa cambios recibidos desde Supabase.
+   *
+   * @param {object} event
+   */
+  function handleRealtimeChange(event) {
+    if (!state.initialized) {
+      return;
+    }
+
+    if (!document.querySelector("#view-caja")) {
+      return;
+    }
+
+    const newState =
+      event?.newRecord?.estado || null;
+
+    const oldState =
+      event?.oldRecord?.estado || null;
+
+    const affectsCashier =
+      event?.type === "INSERT" ||
+      CASHIER_STATES.includes(newState) ||
+      CASHIER_STATES.includes(oldState);
+
+    if (!affectsCashier) {
+      return;
+    }
+
+    scheduleRealtimeRefresh();
+  }
+
+  /**
+   * Agrupa eventos consecutivos antes de consultar.
+   */
+  function scheduleRealtimeRefresh() {
+    if (state.realtimeTimer) {
+      window.clearTimeout(
+        state.realtimeTimer
+      );
+    }
+
+    state.realtimeTimer =
+      window.setTimeout(
+        async () => {
+          state.realtimeTimer = null;
+
+          if (state.loading) {
+            state.refreshPending = true;
+            return;
+          }
+
+          await refresh();
+        },
+        REALTIME_REFRESH_DELAY
+      );
   }
 
   /**
@@ -130,19 +207,19 @@
     }
 
     if (state.loading) {
+      state.refreshPending = true;
       return;
     }
 
     state.loading = true;
+    state.refreshPending = false;
     state.callbacks.clearMessage();
 
-    const refreshButton = document.querySelector(
-      "#refresh-cashier"
-    );
+    const refreshButton =
+      document.querySelector("#refresh-cashier");
 
-    const loading = document.querySelector(
-      "#cashier-loading"
-    );
+    const loading =
+      document.querySelector("#cashier-loading");
 
     window.toscanaUtils.setButtonLoading(
       refreshButton,
@@ -157,7 +234,9 @@
     clearColumns();
 
     try {
-      state.orders = await fetchCashierOrders();
+      state.orders =
+        await fetchCashierOrders();
+
       render();
     } catch (error) {
       console.error(
@@ -167,7 +246,7 @@
 
       state.callbacks.showMessage(
         error?.message ||
-          "No fue posible actualizar el módulo Caja."
+        "No fue posible actualizar el módulo Caja."
       );
 
       render();
@@ -183,11 +262,20 @@
       );
 
       state.loading = false;
+
+      if (state.refreshPending) {
+        state.refreshPending = false;
+
+        window.setTimeout(
+          refresh,
+          150
+        );
+      }
     }
   }
 
   /**
-   * Consulta pedidos activos y conserva los estados de Caja.
+   * Consulta pedidos listos y entregados.
    *
    * @returns {Promise<Array<object>>}
    */
@@ -230,13 +318,17 @@
    * Renderiza las columnas de Caja.
    */
   function render() {
-    const readyOrders = state.orders.filter(
-      (order) => order.estado === "listo"
-    );
+    const readyOrders =
+      state.orders.filter(
+        (order) =>
+          order.estado === "listo"
+      );
 
-    const deliveredOrders = state.orders.filter(
-      (order) => order.estado === "entregado"
-    );
+    const deliveredOrders =
+      state.orders.filter(
+        (order) =>
+          order.estado === "entregado"
+      );
 
     renderColumn({
       orders: readyOrders,
@@ -258,7 +350,7 @@
   }
 
   /**
-   * Renderiza una columna de Caja.
+   * Renderiza una columna.
    *
    * @param {object} options
    */
@@ -269,30 +361,30 @@
     countSelector,
     badgeSelector
   }) {
-    const list = document.querySelector(
-      listSelector
-    );
+    const list =
+      document.querySelector(listSelector);
 
-    const empty = document.querySelector(
-      emptySelector
-    );
+    const empty =
+      document.querySelector(emptySelector);
 
-    const count = document.querySelector(
-      countSelector
-    );
+    const count =
+      document.querySelector(countSelector);
 
-    const badge = document.querySelector(
-      badgeSelector
-    );
+    const badge =
+      document.querySelector(badgeSelector);
 
     if (!list || !empty || !count || !badge) {
       return;
     }
 
-    count.textContent = String(orders.length);
-    badge.textContent = String(orders.length);
+    count.textContent =
+      String(orders.length);
 
-    empty.hidden = orders.length > 0;
+    badge.textContent =
+      String(orders.length);
+
+    empty.hidden =
+      orders.length > 0;
 
     if (orders.length === 0) {
       list.innerHTML = "";
@@ -307,15 +399,20 @@
   }
 
   /**
-   * Calcula y muestra el total pendiente visible.
+   * Calcula el total visible.
    */
   function renderPendingTotal() {
     const total = state.orders.reduce(
       (accumulator, order) => {
-        const value = Number(order.total || 0);
+        const value =
+          Number(order.total || 0);
 
         return accumulator +
-          (Number.isFinite(value) ? value : 0);
+          (
+            Number.isFinite(value)
+              ? value
+              : 0
+          );
       },
       0
     );
@@ -333,7 +430,8 @@
    * @returns {string}
    */
   function createCashierCard(order) {
-    const utils = window.toscanaUtils;
+    const utils =
+      window.toscanaUtils;
 
     const orderId =
       order.pedido_id ||
@@ -348,7 +446,9 @@
       utils.getOrderLocation(order);
 
     const elapsedTime =
-      utils.getElapsedTime(order.creado_en);
+      utils.getElapsedTime(
+        order.creado_en
+      );
 
     const customerHTML =
       order.cliente_nombre
@@ -380,9 +480,11 @@
             </span>
           </div>
 
-          <span class="status-badge status-${utils.escapeHTML(
-            order.estado
-          )}">
+          <span
+            class="status-badge status-${utils.escapeHTML(
+              order.estado
+            )}"
+          >
             ${utils.escapeHTML(
               utils.pretty(order.estado)
             )}
@@ -414,7 +516,9 @@
             <span>Tiempo</span>
 
             <strong>
-              ${utils.escapeHTML(elapsedTime)}
+              ${utils.escapeHTML(
+                elapsedTime
+              )}
             </strong>
           </div>
         </div>
@@ -437,13 +541,14 @@
   }
 
   /**
-   * Genera la acción disponible según el estado.
+   * Genera la acción disponible.
    *
    * @param {object} order
    * @returns {string}
    */
   function createActionButton(order) {
-    const utils = window.toscanaUtils;
+    const utils =
+      window.toscanaUtils;
 
     const orderId =
       order.pedido_id ||
@@ -493,7 +598,7 @@
   }
 
   /**
-   * Registra los eventos de las tarjetas.
+   * Registra eventos de las tarjetas.
    *
    * @param {HTMLElement} container
    */
@@ -549,7 +654,7 @@
   }
 
   /**
-   * Cambia el estado mediante la RPC segura.
+   * Actualiza el estado del pedido.
    *
    * @param {string} orderId
    * @param {string} nextState
@@ -563,10 +668,7 @@
       return;
     }
 
-    const actionConfirmed =
-      confirmStatusChange(nextState);
-
-    if (!actionConfirmed) {
+    if (!confirmStatusChange(nextState)) {
       return;
     }
 
@@ -623,9 +725,7 @@
       state.updatingOrderId = null;
 
       if (
-        document.querySelector(
-          "#view-caja"
-        )
+        document.querySelector("#view-caja")
       ) {
         render();
       }
@@ -633,7 +733,7 @@
   }
 
   /**
-   * Solicita confirmación antes de acciones finales.
+   * Confirma acciones operativas.
    *
    * @param {string} nextState
    * @returns {boolean}
@@ -707,13 +807,27 @@
   }
 
   /**
-   * Limpia el estado interno del módulo.
+   * Limpia el módulo y cancela Realtime.
    */
   function destroy() {
     state.initialized = false;
     state.loading = false;
+    state.refreshPending = false;
     state.updatingOrderId = null;
     state.orders = [];
+
+    if (state.realtimeTimer) {
+      window.clearTimeout(
+        state.realtimeTimer
+      );
+
+      state.realtimeTimer = null;
+    }
+
+    if (state.unsubscribeRealtime) {
+      state.unsubscribeRealtime();
+      state.unsubscribeRealtime = null;
+    }
 
     state.callbacks = {
       showMessage: null,
@@ -723,14 +837,13 @@
   }
 
   /**
-   * Muestra un mensaje global por defecto.
+   * Muestra mensaje global por defecto.
    *
    * @param {string} message
    */
   function defaultShowMessage(message) {
-    const element = document.querySelector(
-      "#global-message"
-    );
+    const element =
+      document.querySelector("#global-message");
 
     if (!element) {
       return;
@@ -741,12 +854,11 @@
   }
 
   /**
-   * Limpia el mensaje global por defecto.
+   * Limpia mensaje global por defecto.
    */
   function defaultClearMessage() {
-    const element = document.querySelector(
-      "#global-message"
-    );
+    const element =
+      document.querySelector("#global-message");
 
     if (!element) {
       return;
