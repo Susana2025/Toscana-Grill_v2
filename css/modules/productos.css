@@ -1,0 +1,397 @@
+/* =========================================================
+   TOSCANA GRILL POS
+   Módulo administrativo de Productos
+   ========================================================= */
+
+.product-admin-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+/* =========================================================
+   BARRA DE FILTROS
+   ========================================================= */
+
+.products-toolbar {
+  display: grid;
+  grid-template-columns:
+    minmax(260px, 1.8fr)
+    minmax(180px, 1fr)
+    minmax(170px, 0.9fr)
+    auto;
+  align-items: end;
+  gap: 14px;
+}
+
+.products-search-field {
+  min-width: 0;
+}
+
+.products-toolbar-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+/* =========================================================
+   CUADRÍCULA DE PRODUCTOS
+   ========================================================= */
+
+.products-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(290px, 1fr)
+  );
+  align-items: stretch;
+  gap: 18px;
+}
+
+.product-admin-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-large);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-small);
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.product-admin-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-large);
+}
+
+/* =========================================================
+   IMAGEN
+   ========================================================= */
+
+.product-admin-image {
+  width: 100%;
+  height: 185px;
+  display: block;
+  object-fit: cover;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-3);
+}
+
+.product-admin-image-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.88rem;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.025),
+      rgba(255, 255, 255, 0.055)
+    ),
+    var(--surface-3);
+}
+
+/* =========================================================
+   CONTENIDO DE TARJETA
+   ========================================================= */
+
+.product-admin-content {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 18px;
+}
+
+.product-admin-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.product-admin-header > div {
+  min-width: 0;
+}
+
+.product-admin-header h3 {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.product-admin-category {
+  display: block;
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.045em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.product-admin-description {
+  min-height: 42px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.91rem;
+  overflow-wrap: anywhere;
+}
+
+.product-admin-price {
+  margin-top: auto;
+  color: var(--accent-strong);
+  font-size: 1.45rem;
+}
+
+/* =========================================================
+   ACCIONES DE PRODUCTO
+   ========================================================= */
+
+.product-admin-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.product-admin-actions .secondary-button {
+  min-width: 0;
+  min-height: 42px;
+  padding-right: 10px;
+  padding-left: 10px;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+/* =========================================================
+   DIÁLOGO Y FORMULARIO
+   ========================================================= */
+
+.product-dialog {
+  width: min(850px, 94vw);
+}
+
+.product-dialog form {
+  display: grid;
+  gap: 22px;
+}
+
+.product-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.product-form-grid input,
+.product-form-grid select,
+.product-form-grid textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  outline: none;
+  background: var(--surface-2);
+  color: var(--text);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.product-form-grid textarea {
+  min-height: 115px;
+  resize: vertical;
+}
+
+.product-form-grid input:focus,
+.product-form-grid select:focus,
+.product-form-grid textarea:focus {
+  border-color: var(--accent);
+  background: #252525;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.product-form-grid input::placeholder,
+.product-form-grid textarea::placeholder {
+  color: #727272;
+}
+
+.product-form-grid select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.product-image-field,
+.product-description-field {
+  grid-column: 1 / -1;
+}
+
+/* =========================================================
+   OPCIONES BOOLEANAS
+   ========================================================= */
+
+.product-form-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.product-checkbox {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-medium);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.product-checkbox:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.product-checkbox input {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.product-checkbox span {
+  overflow-wrap: anywhere;
+}
+
+/* =========================================================
+   ACCIONES DEL FORMULARIO
+   ========================================================= */
+
+.product-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.product-form-actions button {
+  min-width: 150px;
+}
+
+/* =========================================================
+   MENSAJES DEL FORMULARIO
+   ========================================================= */
+
+#product-form-message.global-message {
+  margin: 0;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1200px) {
+  .product-admin-summary {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .products-toolbar {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .products-search-field {
+    grid-column: 1 / -1;
+  }
+
+  .products-toolbar-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .product-admin-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .products-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .products-search-field {
+    grid-column: auto;
+  }
+
+  .products-toolbar-actions {
+    width: 100%;
+  }
+
+  .products-toolbar-actions button {
+    width: 100%;
+  }
+
+  .products-admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-image-field,
+  .product-description-field {
+    grid-column: auto;
+  }
+
+  .product-form-options {
+    grid-template-columns: 1fr;
+  }
+
+  .product-form-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .product-form-actions button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .product-admin-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .product-admin-image {
+    height: 165px;
+  }
+
+  .product-admin-header {
+    flex-direction: column;
+  }
+
+  .product-form-actions {
+    grid-template-columns: 1fr;
+  }
+}
