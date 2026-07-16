@@ -9,20 +9,22 @@
  * - Consultar el resumen diario.
  * - Consultar pedidos activos.
  * - Renderizar tarjetas de pedidos.
- * - Abrir el detalle mediante una función proporcionada por panel.js.
- *
- * Este módulo no controla:
- * - Autenticación.
- * - Navegación lateral.
- * - Sesión.
- * - Permisos globales.
+ * - Abrir el detalle mediante panel.js.
+ * - Actualizarse automáticamente mediante Supabase Realtime.
  */
 
 (function initializeDashboardModule() {
+  const REALTIME_REFRESH_DELAY = 350;
+
   const state = {
     initialized: false,
+    loading: false,
+    refreshPending: false,
     currentRole: null,
     orders: [],
+    realtimeTimer: null,
+    unsubscribeRealtime: null,
+
     callbacks: {
       showMessage: null,
       clearMessage: null,
@@ -43,7 +45,8 @@
   async function initialize(options = {}) {
     validateDependencies();
 
-    state.currentRole = options.role || null;
+    state.currentRole =
+      options.role || null;
 
     state.callbacks.showMessage =
       typeof options.showMessage === "function"
@@ -60,9 +63,13 @@
         ? options.openOrder
         : null;
 
-    await window.toscanaViewLoader.load("dashboard");
+    await window.toscanaViewLoader.load(
+      "dashboard"
+    );
 
-    const view = document.querySelector("#view-dashboard");
+    const view = document.querySelector(
+      "#view-dashboard"
+    );
 
     if (!view) {
       throw new Error(
@@ -72,6 +79,7 @@
 
     setupDate();
     setupEvents();
+    setupRealtime();
 
     state.initialized = true;
 
@@ -79,7 +87,7 @@
   }
 
   /**
-   * Valida las dependencias requeridas por el módulo.
+   * Valida dependencias globales.
    */
   function validateDependencies() {
     if (!window.toscanaSupabase) {
@@ -99,55 +107,155 @@
         "Las utilidades compartidas no están disponibles."
       );
     }
+
+    if (!window.toscanaRealtime) {
+      throw new Error(
+        "El servicio Realtime no está disponible."
+      );
+    }
   }
 
   /**
-   * Configura la fecha actual.
+   * Muestra la fecha actual.
    */
   function setupDate() {
-    const currentDate = document.querySelector("#current-date");
+    const currentDate =
+      document.querySelector(
+        "#current-date"
+      );
 
     if (!currentDate) {
       return;
     }
 
     currentDate.textContent =
-      new Intl.DateTimeFormat("es-EC", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric"
-      }).format(new Date());
+      new Intl.DateTimeFormat(
+        "es-EC",
+        {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric"
+        }
+      ).format(new Date());
   }
 
   /**
-   * Configura los eventos internos del Dashboard.
+   * Configura eventos internos.
    */
   function setupEvents() {
-    const refreshButton = document.querySelector(
-      "#refresh-dashboard"
-    );
+    const refreshButton =
+      document.querySelector(
+        "#refresh-dashboard"
+      );
 
     if (refreshButton) {
-      refreshButton.addEventListener("click", refresh);
+      refreshButton.addEventListener(
+        "click",
+        refresh
+      );
     }
   }
 
   /**
-   * Recarga toda la información del Dashboard.
+   * Activa Realtime.
+   */
+  function setupRealtime() {
+    if (state.unsubscribeRealtime) {
+      state.unsubscribeRealtime();
+    }
+
+    state.unsubscribeRealtime =
+      window.toscanaRealtime.subscribe(
+        handleRealtimeChange
+      );
+  }
+
+  /**
+   * Procesa cualquier inserción o cambio de pedido.
+   *
+   * @param {object} event
+   */
+  function handleRealtimeChange(event) {
+    if (!state.initialized) {
+      return;
+    }
+
+    if (
+      !document.querySelector(
+        "#view-dashboard"
+      )
+    ) {
+      return;
+    }
+
+    if (
+      ![
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ].includes(event?.type)
+    ) {
+      return;
+    }
+
+    scheduleRealtimeRefresh();
+  }
+
+  /**
+   * Agrupa eventos consecutivos para evitar consultas duplicadas.
+   */
+  function scheduleRealtimeRefresh() {
+    if (state.realtimeTimer) {
+      window.clearTimeout(
+        state.realtimeTimer
+      );
+    }
+
+    state.realtimeTimer =
+      window.setTimeout(
+        async () => {
+          state.realtimeTimer = null;
+
+          if (state.loading) {
+            state.refreshPending = true;
+            return;
+          }
+
+          await refresh();
+        },
+        REALTIME_REFRESH_DELAY
+      );
+  }
+
+  /**
+   * Actualiza toda la información del Dashboard.
    *
    * @returns {Promise<void>}
    */
   async function refresh() {
-    if (!document.querySelector("#view-dashboard")) {
+    if (
+      !document.querySelector(
+        "#view-dashboard"
+      )
+    ) {
       return;
     }
 
+    if (state.loading) {
+      state.refreshPending = true;
+      return;
+    }
+
+    state.loading = true;
+    state.refreshPending = false;
+
     state.callbacks.clearMessage();
 
-    const refreshButton = document.querySelector(
-      "#refresh-dashboard"
-    );
+    const refreshButton =
+      document.querySelector(
+        "#refresh-dashboard"
+      );
 
     window.toscanaUtils.setButtonLoading(
       refreshButton,
@@ -156,10 +264,11 @@
     );
 
     try {
-      const canSeeFinancialSummary = [
-        "administrador",
-        "caja"
-      ].includes(state.currentRole);
+      const canSeeFinancialSummary =
+        [
+          "administrador",
+          "caja"
+        ].includes(state.currentRole);
 
       if (canSeeFinancialSummary) {
         await Promise.all([
@@ -178,7 +287,7 @@
 
       state.callbacks.showMessage(
         error?.message ||
-          "No fue posible actualizar el Dashboard."
+        "No fue posible actualizar el Dashboard."
       );
     } finally {
       window.toscanaUtils.setButtonLoading(
@@ -186,22 +295,35 @@
         false,
         "Actualizar"
       );
+
+      state.loading = false;
+
+      if (state.refreshPending) {
+        state.refreshPending = false;
+
+        window.setTimeout(
+          refresh,
+          150
+        );
+      }
     }
   }
 
   /**
-   * Consulta los indicadores diarios.
+   * Consulta indicadores diarios.
    *
    * @returns {Promise<void>}
    */
   async function loadSummary() {
-    const { data, error } =
-      await window.toscanaSupabase.rpc(
-        "resumen_diario",
-        {
-          p_fecha: null
-        }
-      );
+    const {
+      data,
+      error
+    } = await window.toscanaSupabase.rpc(
+      "resumen_diario",
+      {
+        p_fecha: null
+      }
+    );
 
     if (error) {
       console.error(
@@ -240,7 +362,7 @@
   }
 
   /**
-   * Oculta información financiera a roles restringidos.
+   * Oculta indicadores financieros para roles restringidos.
    */
   function renderRestrictedSummary() {
     window.toscanaUtils.setText(
@@ -265,28 +387,37 @@
   }
 
   /**
-   * Consulta y renderiza los pedidos activos.
+   * Consulta y renderiza pedidos activos.
    *
    * @returns {Promise<void>}
    */
   async function loadOrders() {
-    const loading = document.querySelector(
-      "#orders-loading"
-    );
+    const loading =
+      document.querySelector(
+        "#orders-loading"
+      );
 
-    const empty = document.querySelector(
-      "#orders-empty"
-    );
+    const empty =
+      document.querySelector(
+        "#orders-empty"
+      );
 
-    const list = document.querySelector(
-      "#orders-list"
-    );
+    const list =
+      document.querySelector(
+        "#orders-list"
+      );
 
-    const count = document.querySelector(
-      "#orders-count"
-    );
+    const count =
+      document.querySelector(
+        "#orders-count"
+      );
 
-    if (!loading || !empty || !list || !count) {
+    if (
+      !loading ||
+      !empty ||
+      !list ||
+      !count
+    ) {
       throw new Error(
         "La estructura visual del Dashboard está incompleta."
       );
@@ -297,10 +428,12 @@
     list.innerHTML = "";
     count.textContent = "0";
 
-    const { data, error } =
-      await window.toscanaSupabase.rpc(
-        "listar_pedidos_activos"
-      );
+    const {
+      data,
+      error
+    } = await window.toscanaSupabase.rpc(
+      "listar_pedidos_activos"
+    );
 
     loading.hidden = true;
 
@@ -315,11 +448,11 @@
       );
     }
 
-    state.orders = window.toscanaUtils.toArray(data);
+    state.orders =
+      window.toscanaUtils.toArray(data);
 
-    count.textContent = String(
-      state.orders.length
-    );
+    count.textContent =
+      String(state.orders.length);
 
     if (state.orders.length === 0) {
       empty.hidden = false;
@@ -334,13 +467,14 @@
   }
 
   /**
-   * Genera la tarjeta HTML de un pedido.
+   * Genera una tarjeta de pedido.
    *
    * @param {object} order
    * @returns {string}
    */
   function createOrderCard(order) {
-    const utils = window.toscanaUtils;
+    const utils =
+      window.toscanaUtils;
 
     const orderId =
       order.pedido_id ||
@@ -354,7 +488,12 @@
     const location =
       utils.getOrderLocation(order);
 
-    const customer =
+    const elapsedTime =
+      utils.getElapsedTime(
+        order.creado_en
+      );
+
+    const customerHTML =
       order.cliente_nombre
         ? `
           <p class="order-customer">
@@ -366,15 +505,12 @@
         `
         : "";
 
-    const elapsedTime =
-      utils.getElapsedTime(
-        order.creado_en
-      );
-
     return `
       <article
         class="order-card"
-        data-id="${utils.escapeHTML(orderId)}"
+        data-id="${utils.escapeHTML(
+          orderId
+        )}"
         tabindex="0"
         role="button"
         aria-label="Abrir pedido ${utils.escapeHTML(
@@ -384,11 +520,15 @@
         <div class="order-card-header">
           <div>
             <strong>
-              ${utils.escapeHTML(ticket)}
+              ${utils.escapeHTML(
+                ticket
+              )}
             </strong>
 
             <span>
-              ${utils.escapeHTML(location)}
+              ${utils.escapeHTML(
+                location
+              )}
             </span>
           </div>
 
@@ -398,12 +538,14 @@
             )}"
           >
             ${utils.escapeHTML(
-              utils.pretty(order.estado)
+              utils.pretty(
+                order.estado
+              )
             )}
           </span>
         </div>
 
-        ${customer}
+        ${customerHTML}
 
         <div class="order-card-body">
           <div>
@@ -420,7 +562,9 @@
             <span>Total</span>
 
             <strong>
-              ${utils.money(order.total)}
+              ${utils.money(
+                order.total
+              )}
             </strong>
           </div>
 
@@ -439,16 +583,19 @@
   }
 
   /**
-   * Registra los eventos de apertura de pedidos.
+   * Registra eventos de apertura de pedidos.
    *
    * @param {HTMLElement} container
    */
   function attachOrderEvents(container) {
     container
-      .querySelectorAll(".order-card")
+      .querySelectorAll(
+        ".order-card"
+      )
       .forEach((card) => {
         const openCard = () => {
-          const orderId = card.dataset.id;
+          const orderId =
+            card.dataset.id;
 
           if (
             orderId &&
@@ -481,12 +628,27 @@
   }
 
   /**
-   * Limpia el estado del módulo.
+   * Libera la suscripción y limpia el estado.
    */
   function destroy() {
     state.initialized = false;
-    state.orders = [];
+    state.loading = false;
+    state.refreshPending = false;
     state.currentRole = null;
+    state.orders = [];
+
+    if (state.realtimeTimer) {
+      window.clearTimeout(
+        state.realtimeTimer
+      );
+
+      state.realtimeTimer = null;
+    }
+
+    if (state.unsubscribeRealtime) {
+      state.unsubscribeRealtime();
+      state.unsubscribeRealtime = null;
+    }
 
     state.callbacks = {
       showMessage: null,
@@ -496,14 +658,15 @@
   }
 
   /**
-   * Muestra un mensaje utilizando el contenedor global.
+   * Muestra un mensaje global por defecto.
    *
    * @param {string} message
    */
   function defaultShowMessage(message) {
-    const element = document.querySelector(
-      "#global-message"
-    );
+    const element =
+      document.querySelector(
+        "#global-message"
+      );
 
     if (!element) {
       return;
@@ -514,12 +677,13 @@
   }
 
   /**
-   * Limpia el mensaje global.
+   * Limpia el mensaje global por defecto.
    */
   function defaultClearMessage() {
-    const element = document.querySelector(
-      "#global-message"
-    );
+    const element =
+      document.querySelector(
+        "#global-message"
+      );
 
     if (!element) {
       return;
@@ -534,9 +698,11 @@
       initialize,
       refresh,
       destroy,
+
       getOrders() {
         return [...state.orders];
       },
+
       isInitialized() {
         return state.initialized;
       }
