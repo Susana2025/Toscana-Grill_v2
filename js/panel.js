@@ -8,8 +8,8 @@
  * - Consultar perfil.
  * - Aplicar permisos.
  * - Controlar navegación.
- * - Inicializar módulos.
- * - Gestionar detalle de pedidos.
+ * - Inicializar módulos independientes.
+ * - Gestionar el modal de detalle de pedidos.
  * - Cerrar sesión.
  */
 
@@ -71,11 +71,11 @@ const VIEW_CONFIG = {
   },
 
   productos: {
-    title: "Productos",
+    title: "Gestión de productos",
     roles: [
       "administrador"
     ],
-    moduleName: null
+    moduleName: "toscanaProductsModule"
   },
 
   usuarios: {
@@ -93,7 +93,7 @@ document.addEventListener(
 );
 
 /**
- * Inicializa el panel.
+ * Inicializa el panel administrativo.
  *
  * @returns {Promise<void>}
  */
@@ -126,13 +126,23 @@ async function initializePanel() {
 
     await navigateToView("dashboard");
 
-    document.querySelector(
-      "#app-loading"
-    ).hidden = true;
+    const appLoading =
+      document.querySelector(
+        "#app-loading"
+      );
 
-    document.querySelector(
-      "#admin-app"
-    ).hidden = false;
+    const adminApp =
+      document.querySelector(
+        "#admin-app"
+      );
+
+    if (appLoading) {
+      appLoading.hidden = true;
+    }
+
+    if (adminApp) {
+      adminApp.hidden = false;
+    }
   } catch (error) {
     console.error(
       "Error al inicializar el panel:",
@@ -168,9 +178,11 @@ function validateGlobalDependencies() {
     }
   ];
 
-  const missingDependency = dependencies.find(
-    (dependency) => !dependency.object
-  );
+  const missingDependency =
+    dependencies.find(
+      (dependency) =>
+        !dependency.object
+    );
 
   if (missingDependency) {
     throw new Error(
@@ -188,7 +200,8 @@ async function getCurrentSession() {
   const {
     data,
     error
-  } = await window.toscanaSupabase.auth.getSession();
+  } =
+    await window.toscanaSupabase.auth.getSession();
 
   if (error) {
     throw error;
@@ -207,15 +220,21 @@ async function getUserProfile(userId) {
   const {
     data,
     error
-  } = await window.toscanaSupabase
-    .from("perfiles")
-    .select(
-      "id,nombre_completo,rol,activo"
-    )
-    .eq("id", userId)
-    .single();
+  } =
+    await window.toscanaSupabase
+      .from("perfiles")
+      .select(
+        "id,nombre_completo,rol,activo"
+      )
+      .eq("id", userId)
+      .single();
 
   if (error) {
+    console.error(
+      "Error al consultar el perfil:",
+      error
+    );
+
     throw new Error(
       "No fue posible consultar el perfil del usuario."
     );
@@ -234,7 +253,8 @@ async function getUserProfile(userId) {
  * Presenta la información del usuario.
  */
 function setupUserInterface() {
-  const profile = panelState.profile;
+  const profile =
+    panelState.profile;
 
   const displayName =
     profile.nombre_completo ||
@@ -262,46 +282,78 @@ function setupUserInterface() {
 }
 
 /**
- * Configura eventos globales.
+ * Configura los eventos globales del panel.
  */
 function setupGlobalEvents() {
   const logoutButton =
-    document.querySelector("#logout-button");
+    document.querySelector(
+      "#logout-button"
+    );
 
   const sidebarToggle =
-    document.querySelector("#sidebar-toggle");
+    document.querySelector(
+      "#sidebar-toggle"
+    );
 
   const sidebar =
-    document.querySelector("#sidebar");
+    document.querySelector(
+      "#sidebar"
+    );
 
   const overlay =
-    document.querySelector("#sidebar-overlay");
+    document.querySelector(
+      "#sidebar-overlay"
+    );
 
   const orderDialog =
-    document.querySelector("#order-dialog");
+    document.querySelector(
+      "#order-dialog"
+    );
 
   const closeOrderDialog =
     document.querySelector(
       "#close-order-dialog"
     );
 
-  logoutButton.addEventListener(
-    "click",
-    logout
-  );
+  if (logoutButton) {
+    logoutButton.addEventListener(
+      "click",
+      logout
+    );
+  }
 
-  sidebarToggle.addEventListener(
-    "click",
-    () => {
-      sidebar.classList.toggle("open");
-      overlay.classList.toggle("visible");
-    }
-  );
+  if (
+    sidebarToggle &&
+    sidebar &&
+    overlay
+  ) {
+    sidebarToggle.addEventListener(
+      "click",
+      () => {
+        const isOpen =
+          sidebar.classList.toggle(
+            "open"
+          );
 
-  overlay.addEventListener(
-    "click",
-    closeSidebar
-  );
+        overlay.classList.toggle(
+          "visible",
+          isOpen
+        );
+
+        sidebarToggle.setAttribute(
+          "aria-expanded",
+          String(isOpen)
+        );
+      }
+    );
+  }
+
+  if (overlay) {
+    overlay.addEventListener(
+      "click",
+      closeSidebar
+    );
+  }
 
   document
     .querySelectorAll(".nav-item")
@@ -316,34 +368,50 @@ function setupGlobalEvents() {
             return;
           }
 
-          await navigateToView(viewName);
+          await navigateToView(
+            viewName
+          );
+
           closeSidebar();
         }
       );
     });
 
-  closeOrderDialog.addEventListener(
-    "click",
-    () => {
-      if (orderDialog.open) {
-        orderDialog.close();
+  if (
+    closeOrderDialog &&
+    orderDialog
+  ) {
+    closeOrderDialog.addEventListener(
+      "click",
+      () => {
+        if (orderDialog.open) {
+          orderDialog.close();
+        }
       }
-    }
-  );
+    );
+  }
 
-  orderDialog.addEventListener(
-    "click",
-    (event) => {
-      if (event.target === orderDialog) {
-        orderDialog.close();
+  if (orderDialog) {
+    orderDialog.addEventListener(
+      "click",
+      (event) => {
+        if (
+          event.target ===
+          orderDialog
+        ) {
+          orderDialog.close();
+        }
       }
-    }
-  );
+    );
+  }
 
   window.addEventListener(
     "resize",
     () => {
-      if (window.innerWidth > 900) {
+      if (
+        window.innerWidth >
+        900
+      ) {
         closeSidebar();
       }
     }
@@ -351,7 +419,7 @@ function setupGlobalEvents() {
 }
 
 /**
- * Aplica permisos de navegación.
+ * Aplica permisos sobre las opciones del menú.
  */
 function applyRolePermissions() {
   const currentRole =
@@ -384,7 +452,9 @@ function applyRolePermissions() {
  * @param {string} viewName
  * @returns {Promise<void>}
  */
-async function navigateToView(viewName) {
+async function navigateToView(
+  viewName
+) {
   clearGlobalMessage();
 
   const config =
@@ -410,15 +480,24 @@ async function navigateToView(viewName) {
     return;
   }
 
-  setActiveNavigationItem(viewName);
-  setPageTitle(config.title);
+  setActiveNavigationItem(
+    viewName
+  );
+
+  setPageTitle(
+    config.title
+  );
 
   destroyCurrentModule();
 
-  panelState.currentView = viewName;
+  panelState.currentView =
+    viewName;
 
   if (!config.moduleName) {
-    renderPendingModule(config.title);
+    renderPendingModule(
+      config.title
+    );
+
     return;
   }
 
@@ -426,8 +505,11 @@ async function navigateToView(viewName) {
     window[config.moduleName];
 
   if (!module) {
+    const message =
+      `No se cargó correctamente el módulo ${config.title}.`;
+
     showGlobalMessage(
-      `No se cargó correctamente el módulo ${config.title}.`
+      message
     );
 
     renderModuleError(
@@ -442,11 +524,16 @@ async function navigateToView(viewName) {
 
   try {
     await module.initialize({
-      role: panelState.profile.rol,
-      profile: panelState.profile,
-      session: panelState.session,
-      showMessage: showGlobalMessage,
-      clearMessage: clearGlobalMessage,
+      role:
+        panelState.profile.rol,
+      profile:
+        panelState.profile,
+      session:
+        panelState.session,
+      showMessage:
+        showGlobalMessage,
+      clearMessage:
+        clearGlobalMessage,
       openOrder
     });
   } catch (error) {
@@ -455,20 +542,23 @@ async function navigateToView(viewName) {
       error
     );
 
-    showGlobalMessage(
+    const message =
       error?.message ||
-      `No fue posible cargar ${config.title}.`
+      `No fue posible cargar ${config.title}.`;
+
+    showGlobalMessage(
+      message
     );
 
     renderModuleError(
       config.title,
-      error?.message
+      message
     );
   }
 }
 
 /**
- * Destruye el módulo actual.
+ * Destruye el módulo actualmente cargado.
  */
 function destroyCurrentModule() {
   const currentConfig =
@@ -476,39 +566,54 @@ function destroyCurrentModule() {
       panelState.currentView
     ];
 
-  if (!currentConfig?.moduleName) {
+  if (
+    !currentConfig?.moduleName
+  ) {
     return;
   }
 
   const currentModule =
-    window[currentConfig.moduleName];
+    window[
+      currentConfig.moduleName
+    ];
 
   if (
     currentModule &&
-    typeof currentModule.destroy === "function"
+    typeof currentModule.destroy ===
+      "function"
   ) {
-    currentModule.destroy();
+    try {
+      currentModule.destroy();
+    } catch (error) {
+      console.error(
+        "Error al destruir el módulo actual:",
+        error
+      );
+    }
   }
 }
 
 /**
- * Marca la opción activa.
+ * Marca el botón activo del menú.
  *
  * @param {string} viewName
  */
-function setActiveNavigationItem(viewName) {
+function setActiveNavigationItem(
+  viewName
+) {
   document
     .querySelectorAll(".nav-item")
     .forEach((button) => {
       button.classList.toggle(
         "active",
-        button.dataset.view === viewName
+        button.dataset.view ===
+          viewName
       );
     });
 }
 
 /**
- * Cambia el título del panel.
+ * Actualiza el título superior.
  *
  * @param {string} title
  */
@@ -520,7 +625,7 @@ function setPageTitle(title) {
 }
 
 /**
- * Muestra carga del módulo.
+ * Muestra la carga del módulo.
  */
 function renderViewLoading() {
   const container =
@@ -528,16 +633,23 @@ function renderViewLoading() {
       "#view-container"
     );
 
+  if (!container) {
+    return;
+  }
+
   container.innerHTML = `
     <div class="view-loading">
       <div class="loader"></div>
-      <p>Cargando módulo…</p>
+
+      <p>
+        Cargando módulo…
+      </p>
     </div>
   `;
 }
 
 /**
- * Muestra módulo pendiente.
+ * Muestra un módulo pendiente.
  *
  * @param {string} title
  */
@@ -546,6 +658,10 @@ function renderPendingModule(title) {
     document.querySelector(
       "#view-container"
     );
+
+  if (!container) {
+    return;
+  }
 
   container.innerHTML = `
     <section class="panel-view active">
@@ -557,8 +673,7 @@ function renderPendingModule(title) {
         </h2>
 
         <p>
-          Este módulo está preparado para su
-          implementación incremental.
+          Este módulo está preparado para su implementación incremental.
         </p>
       </div>
     </section>
@@ -566,16 +681,23 @@ function renderPendingModule(title) {
 }
 
 /**
- * Muestra error de carga.
+ * Muestra un error dentro del contenedor.
  *
  * @param {string} title
  * @param {string} message
  */
-function renderModuleError(title, message) {
+function renderModuleError(
+  title,
+  message
+) {
   const container =
     document.querySelector(
       "#view-container"
     );
+
+  if (!container) {
+    return;
+  }
 
   container.innerHTML = `
     <section class="panel-view active">
@@ -599,7 +721,7 @@ function renderModuleError(title, message) {
 }
 
 /**
- * Abre el detalle del pedido.
+ * Abre el detalle completo de un pedido.
  *
  * @param {string} orderId
  * @returns {Promise<void>}
@@ -615,7 +737,11 @@ async function openOrder(orderId) {
       "#order-detail-content"
     );
 
-  if (!orderId) {
+  if (
+    !orderId ||
+    !dialog ||
+    !content
+  ) {
     return;
   }
 
@@ -633,22 +759,26 @@ async function openOrder(orderId) {
     const {
       data,
       error
-    } = await window.toscanaSupabase.rpc(
-      "obtener_detalle_pedido",
-      {
-        p_pedido_id: orderId
-      }
-    );
+    } =
+      await window.toscanaSupabase.rpc(
+        "obtener_detalle_pedido",
+        {
+          p_pedido_id:
+            orderId
+        }
+      );
 
     if (error) {
       throw error;
     }
 
     content.innerHTML =
-      createOrderDetailHTML(data);
+      createOrderDetailHTML(
+        data || {}
+      );
   } catch (error) {
     console.error(
-      "Error al cargar el detalle:",
+      "Error al cargar el detalle del pedido:",
       error
     );
 
@@ -670,17 +800,21 @@ async function openOrder(orderId) {
 }
 
 /**
- * Genera el detalle del pedido.
+ * Genera el contenido del detalle de un pedido.
  *
  * @param {object} order
  * @returns {string}
  */
-function createOrderDetailHTML(order = {}) {
+function createOrderDetailHTML(
+  order = {}
+) {
   const utils =
     window.toscanaUtils;
 
   const details =
-    utils.toArray(order.detalle);
+    utils.toArray(
+      order.detalle
+    );
 
   const rows =
     details.length > 0
@@ -773,6 +907,21 @@ function createOrderDetailHTML(order = {}) {
       `
       : "";
 
+  const address =
+    order.direccion_entrega
+      ? `
+        <div>
+          <span>Dirección</span>
+
+          <strong>
+            ${utils.escapeHTML(
+              order.direccion_entrega
+            )}
+          </strong>
+        </div>
+      `
+      : "";
+
   const observations =
     order.observaciones
       ? `
@@ -794,7 +943,9 @@ function createOrderDetailHTML(order = {}) {
     <div class="order-detail">
       <div class="order-detail-header">
         <div>
-          <p>Pedido</p>
+          <p>
+            Pedido
+          </p>
 
           <h2>
             ${utils.escapeHTML(
@@ -819,7 +970,9 @@ function createOrderDetailHTML(order = {}) {
 
       <div class="order-detail-summary">
         <div>
-          <span>Ubicación</span>
+          <span>
+            Ubicación
+          </span>
 
           <strong>
             ${utils.escapeHTML(
@@ -831,7 +984,9 @@ function createOrderDetailHTML(order = {}) {
         </div>
 
         <div>
-          <span>Total</span>
+          <span>
+            Total
+          </span>
 
           <strong>
             ${utils.money(
@@ -841,7 +996,9 @@ function createOrderDetailHTML(order = {}) {
         </div>
 
         <div>
-          <span>Estado de pago</span>
+          <span>
+            Estado de pago
+          </span>
 
           <strong>
             ${utils.escapeHTML(
@@ -854,16 +1011,28 @@ function createOrderDetailHTML(order = {}) {
 
         ${customer}
         ${phone}
+        ${address}
       </div>
 
       <div class="order-detail-table-wrapper">
         <table class="order-detail-table">
           <thead>
             <tr>
-              <th>Producto</th>
-              <th>Cantidad</th>
-              <th>Precio</th>
-              <th>Subtotal</th>
+              <th>
+                Producto
+              </th>
+
+              <th>
+                Cantidad
+              </th>
+
+              <th>
+                Precio
+              </th>
+
+              <th>
+                Subtotal
+              </th>
             </tr>
           </thead>
 
@@ -882,15 +1051,39 @@ function createOrderDetailHTML(order = {}) {
  * Cierra el menú lateral.
  */
 function closeSidebar() {
-  document
-    .querySelector("#sidebar")
-    .classList.remove("open");
+  const sidebar =
+    document.querySelector(
+      "#sidebar"
+    );
 
-  document
-    .querySelector(
+  const overlay =
+    document.querySelector(
       "#sidebar-overlay"
-    )
-    .classList.remove("visible");
+    );
+
+  const sidebarToggle =
+    document.querySelector(
+      "#sidebar-toggle"
+    );
+
+  if (sidebar) {
+    sidebar.classList.remove(
+      "open"
+    );
+  }
+
+  if (overlay) {
+    overlay.classList.remove(
+      "visible"
+    );
+  }
+
+  if (sidebarToggle) {
+    sidebarToggle.setAttribute(
+      "aria-expanded",
+      "false"
+    );
+  }
 }
 
 /**
@@ -911,6 +1104,14 @@ async function logout() {
   );
 
   try {
+    if (
+      window.toscanaRealtime &&
+      typeof window.toscanaRealtime.disconnect ===
+        "function"
+    ) {
+      await window.toscanaRealtime.disconnect();
+    }
+
     await window.toscanaSupabase.auth.signOut();
   } catch (error) {
     console.error(
@@ -923,7 +1124,7 @@ async function logout() {
 }
 
 /**
- * Redirige al login.
+ * Redirige al formulario de inicio de sesión.
  */
 function redirectToLogin() {
   window.location.replace(
@@ -932,7 +1133,7 @@ function redirectToLogin() {
 }
 
 /**
- * Muestra mensaje global.
+ * Muestra un mensaje global.
  *
  * @param {string} message
  */
@@ -946,12 +1147,14 @@ function showGlobalMessage(message) {
     return;
   }
 
-  element.textContent = message;
+  element.textContent =
+    String(message || "");
+
   element.hidden = false;
 }
 
 /**
- * Limpia mensaje global.
+ * Limpia el mensaje global.
  */
 function clearGlobalMessage() {
   const element =
@@ -968,7 +1171,7 @@ function clearGlobalMessage() {
 }
 
 /**
- * Muestra error crítico.
+ * Muestra un error crítico.
  *
  * @param {string} message
  */
@@ -977,6 +1180,10 @@ function renderFatalError(message) {
     document.querySelector(
       "#app-loading"
     );
+
+  if (!loading) {
+    return;
+  }
 
   const safeMessage =
     window.toscanaUtils
