@@ -1,0 +1,158 @@
+<section id="view-caja" class="panel-view active">
+  <div class="view-header">
+    <div>
+      <h2>Gestión de caja</h2>
+
+      <p>
+        Controla los pedidos listos para entregar y finaliza los pedidos
+        entregados.
+      </p>
+    </div>
+
+    <button
+      id="refresh-cashier"
+      class="secondary-button"
+      type="button"
+    >
+      Actualizar
+    </button>
+  </div>
+
+  <div class="kitchen-summary">
+    <article class="metric-card">
+      <span>Listos para entregar</span>
+
+      <strong id="cashier-ready-count">
+        0
+      </strong>
+
+      <small>
+        Pedidos terminados por cocina
+      </small>
+    </article>
+
+    <article class="metric-card">
+      <span>Entregados</span>
+
+      <strong id="cashier-delivered-count">
+        0
+      </strong>
+
+      <small>
+        Pendientes de cerrar
+      </small>
+    </article>
+
+    <article class="metric-card">
+      <span>Total pendiente</span>
+
+      <strong id="cashier-pending-total">
+        $0,00
+      </strong>
+
+      <small>
+        Valor de pedidos visibles
+      </small>
+    </article>
+  </div>
+
+  <div
+    id="cashier-loading"
+    class="section-loading"
+    hidden
+  >
+    Cargando pedidos de caja…
+  </div>
+
+  <div class="kitchen-board cashier-board">
+    <section
+      class="kitchen-column cashier-column"
+      data-cashier-column="listo"
+    >
+      <header class="kitchen-column-header">
+        <div>
+          <span class="kitchen-column-indicator"></span>
+
+          <div>
+            <h3>Listos para entregar</h3>
+
+            <p>
+              Pedidos que ya terminaron su preparación
+            </p>
+          </div>
+        </div>
+
+        <span
+          id="cashier-ready-badge"
+          class="counter-badge"
+        >
+          0
+        </span>
+      </header>
+
+      <div
+        id="cashier-ready-list"
+        class="kitchen-orders-list"
+      ></div>
+
+      <div
+        id="cashier-ready-empty"
+        class="empty-state kitchen-empty"
+        hidden
+      >
+        <strong>
+          No hay pedidos listos.
+        </strong>
+
+        <p>
+          Los pedidos finalizados por cocina aparecerán aquí.
+        </p>
+      </div>
+    </section>
+
+    <section
+      class="kitchen-column cashier-column"
+      data-cashier-column="entregado"
+    >
+      <header class="kitchen-column-header">
+        <div>
+          <span class="kitchen-column-indicator"></span>
+
+          <div>
+            <h3>Entregados</h3>
+
+            <p>
+              Pedidos entregados pendientes de cierre
+            </p>
+          </div>
+        </div>
+
+        <span
+          id="cashier-delivered-badge"
+          class="counter-badge"
+        >
+          0
+        </span>
+      </header>
+
+      <div
+        id="cashier-delivered-list"
+        class="kitchen-orders-list"
+      ></div>
+
+      <div
+        id="cashier-delivered-empty"
+        class="empty-state kitchen-empty"
+        hidden
+      >
+        <strong>
+          No hay pedidos entregados pendientes.
+        </strong>
+
+        <p>
+          Los pedidos entregados aparecerán en esta columna.
+        </p>
+      </div>
+    </section>
+  </div>
+</section>
