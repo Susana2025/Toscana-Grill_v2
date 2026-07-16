@@ -4,12 +4,12 @@
  * Coordinador principal del panel administrativo.
  *
  * Responsabilidades:
- * - Validar la sesión.
- * - Obtener el perfil del usuario.
- * - Aplicar permisos por rol.
- * - Controlar la navegación.
- * - Inicializar módulos independientes.
- * - Gestionar el modal de detalle.
+ * - Validar sesión.
+ * - Consultar perfil.
+ * - Aplicar permisos.
+ * - Controlar navegación.
+ * - Inicializar módulos.
+ * - Gestionar detalle de pedidos.
  * - Cerrar sesión.
  */
 
@@ -67,7 +67,7 @@ const VIEW_CONFIG = {
       "caja",
       "mesero"
     ],
-    moduleName: null
+    moduleName: "toscanaHistoryModule"
   },
 
   productos: {
@@ -262,7 +262,7 @@ function setupUserInterface() {
 }
 
 /**
- * Configura los eventos globales.
+ * Configura eventos globales.
  */
 function setupGlobalEvents() {
   const logoutButton =
@@ -492,7 +492,7 @@ function destroyCurrentModule() {
 }
 
 /**
- * Marca el botón activo del menú.
+ * Marca la opción activa.
  *
  * @param {string} viewName
  */
@@ -508,7 +508,7 @@ function setActiveNavigationItem(viewName) {
 }
 
 /**
- * Actualiza el título superior.
+ * Cambia el título del panel.
  *
  * @param {string} title
  */
@@ -520,7 +520,7 @@ function setPageTitle(title) {
 }
 
 /**
- * Muestra el indicador de carga.
+ * Muestra carga del módulo.
  */
 function renderViewLoading() {
   const container =
@@ -537,7 +537,7 @@ function renderViewLoading() {
 }
 
 /**
- * Muestra un módulo pendiente.
+ * Muestra módulo pendiente.
  *
  * @param {string} title
  */
@@ -566,7 +566,7 @@ function renderPendingModule(title) {
 }
 
 /**
- * Muestra un error dentro del módulo.
+ * Muestra error de carga.
  *
  * @param {string} title
  * @param {string} message
@@ -599,7 +599,7 @@ function renderModuleError(title, message) {
 }
 
 /**
- * Abre el detalle de un pedido.
+ * Abre el detalle del pedido.
  *
  * @param {string} orderId
  * @returns {Promise<void>}
@@ -932,7 +932,7 @@ function redirectToLogin() {
 }
 
 /**
- * Muestra un mensaje global.
+ * Muestra mensaje global.
  *
  * @param {string} message
  */
@@ -951,7 +951,7 @@ function showGlobalMessage(message) {
 }
 
 /**
- * Limpia el mensaje global.
+ * Limpia mensaje global.
  */
 function clearGlobalMessage() {
   const element =
@@ -968,7 +968,7 @@ function clearGlobalMessage() {
 }
 
 /**
- * Muestra un error crítico.
+ * Muestra error crítico.
  *
  * @param {string} message
  */
