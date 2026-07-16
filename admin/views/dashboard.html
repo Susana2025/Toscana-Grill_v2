@@ -1,46 +1,78 @@
-<section class="dashboard-view" data-view="dashboard">
-  <header class="view-header">
+<section id="view-dashboard" class="panel-view active">
+
+  <div class="view-header">
     <div>
-      <p class="view-eyebrow">Resumen operativo</p>
-      <h1>Dashboard</h1>
-      <p>Información general de la operación diaria de Toscana Grill.</p>
+      <h2>Resumen operativo</h2>
+      <p id="current-date"></p>
     </div>
-  </header>
 
-  <div class="dashboard-cards">
-    <article class="dashboard-card">
-      <span>Pedidos activos</span>
-      <strong id="dashboardPedidosActivos">0</strong>
-    </article>
-
-    <article class="dashboard-card">
-      <span>Pedidos de hoy</span>
-      <strong id="dashboardPedidosHoy">0</strong>
-    </article>
-
-    <article class="dashboard-card">
-      <span>Ventas de hoy</span>
-      <strong id="dashboardVentasHoy">$0,00</strong>
-    </article>
-
-    <article class="dashboard-card">
-      <span>Ticket promedio</span>
-      <strong id="dashboardTicketPromedio">$0,00</strong>
-    </article>
+    <button
+      id="refresh-dashboard"
+      class="secondary-button"
+      type="button"
+    >
+      Actualizar
+    </button>
   </div>
 
-  <section class="dashboard-section">
-    <div class="section-heading">
+  <div class="metric-grid">
+
+    <article class="metric-card">
+      <span>Pedidos activos</span>
+      <strong id="metric-active-orders">—</strong>
+      <small>Pendientes de finalizar</small>
+    </article>
+
+    <article class="metric-card">
+      <span>Pedidos del día</span>
+      <strong id="metric-total-orders">—</strong>
+      <small>Todos los estados</small>
+    </article>
+
+    <article class="metric-card">
+      <span>Ventas generadas</span>
+      <strong id="metric-sales">$0,00</strong>
+      <small>No cancelados</small>
+    </article>
+
+    <article class="metric-card">
+      <span>Total pagado</span>
+      <strong id="metric-paid">$0,00</strong>
+      <small>Pagos registrados hoy</small>
+    </article>
+
+  </div>
+
+  <div class="content-card">
+
+    <div class="card-header">
       <div>
-        <h2>Pedidos recientes</h2>
-        <p>Últimos pedidos registrados en el sistema.</p>
+        <h2>Pedidos activos</h2>
+        <p>Selecciona un pedido para ver el detalle.</p>
       </div>
+
+      <span id="orders-count" class="counter-badge">0</span>
     </div>
 
-    <div id="dashboardPedidosRecientes" class="dashboard-orders">
-      <p class="empty-state">
-        Los pedidos recientes se cargarán aquí.
-      </p>
+    <div
+      id="orders-loading"
+      class="section-loading"
+      hidden
+    >
+      Cargando pedidos…
     </div>
-  </section>
+
+    <div
+      id="orders-empty"
+      class="empty-state"
+      hidden
+    >
+      <strong>No existen pedidos activos.</strong>
+      <p>Los nuevos pedidos aparecerán aquí.</p>
+    </div>
+
+    <div id="orders-list" class="orders-list"></div>
+
+  </div>
+
 </section>
