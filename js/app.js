@@ -1,14 +1,21 @@
 "use strict";
 
 /**
- * Menú público de Toscana Grill.
+ * Menú público y toma manual de pedidos de Toscana Grill.
  *
- * Funciones principales:
- * - Cargar productos y mesas desde Supabase.
- * - Detectar la mesa desde la URL: ?mesa=1
- * - Bloquear la mesa cuando proviene de un QR.
- * - Gestionar carrito y cantidades.
- * - Registrar pedidos mediante la RPC crear_pedido.
+ * Modos admitidos:
+ *
+ * 1. Cliente con QR:
+ *    ?mesa=4
+ *    La mesa queda seleccionada y bloqueada.
+ *
+ * 2. Personal del restaurante:
+ *    ?modo=admin
+ *    Permite elegir manualmente el tipo de pedido y la mesa.
+ *
+ * 3. Acceso general:
+ *    Sin parámetros.
+ *    Mantiene la selección manual disponible.
  */
 
 const state = {
@@ -16,19 +23,23 @@ const state = {
   tables: [],
   cart: [],
   qrTableNumber: null,
-  qrTable: null
+  qrTable: null,
+  adminMode: false
 };
 
-document.addEventListener("DOMContentLoaded", initializeApp);
+document.addEventListener(
+  "DOMContentLoaded",
+  initializeApp
+);
 
 /**
- * Inicializa el menú público.
+ * Inicializa la aplicación.
  *
  * @returns {Promise<void>}
  */
 async function initializeApp() {
   bindEvents();
-  detectTableFromURL();
+  detectURLMode();
 
   if (!window.toscanaSupabase) {
     showMessage(
@@ -46,7 +57,7 @@ async function initializeApp() {
 
     restoreCart();
     renderCart();
-    applyQRTable();
+    applyURLConfiguration();
     toggleOrderFields();
   } catch (error) {
     console.error(
@@ -62,7 +73,7 @@ async function initializeApp() {
 }
 
 /**
- * Configura los eventos permanentes.
+ * Configura eventos permanentes.
  */
 function bindEvents() {
   const searchInput =
@@ -117,16 +128,30 @@ function bindEvents() {
 }
 
 /**
- * Detecta el número de mesa incluido en la URL.
- *
- * Ejemplo:
- * ?mesa=7
+ * Detecta el modo de operación desde la URL.
  */
-function detectTableFromURL() {
+function detectURLMode() {
   const parameters =
     new URLSearchParams(
       window.location.search
     );
+
+  const mode =
+    String(
+      parameters.get("modo") || ""
+    )
+      .trim()
+      .toLowerCase();
+
+  state.adminMode =
+    mode === "admin" ||
+    mode === "personal";
+
+  if (state.adminMode) {
+    state.qrTableNumber = null;
+    state.qrTable = null;
+    return;
+  }
 
   const tableParameter =
     parameters.get("mesa");
@@ -156,6 +181,71 @@ function detectTableFromURL() {
   }
 
   state.qrTableNumber = tableNumber;
+}
+
+/**
+ * Aplica la configuración detectada en la URL.
+ */
+function applyURLConfiguration() {
+  if (state.adminMode) {
+    enableManualOrderMode();
+    renderAdminModeNotice();
+    return;
+  }
+
+  applyQRTable();
+}
+
+/**
+ * Activa la toma manual de pedidos.
+ */
+function enableManualOrderMode() {
+  const orderType =
+    document.querySelector(
+      "#order-type"
+    );
+
+  const tableSelect =
+    document.querySelector(
+      "#table-select"
+    );
+
+  if (orderType) {
+    orderType.disabled = false;
+  }
+
+  if (tableSelect) {
+    tableSelect.disabled = false;
+  }
+
+  state.qrTable = null;
+}
+
+/**
+ * Muestra una indicación de modo administrativo.
+ */
+function renderAdminModeNotice() {
+  const tableField =
+    document.querySelector(
+      "#table-field"
+    );
+
+  if (!tableField) {
+    return;
+  }
+
+  removeModeNotices();
+
+  const notice =
+    document.createElement("p");
+
+  notice.id = "admin-mode-notice";
+  notice.className = "qr-table-notice";
+
+  notice.textContent =
+    "Modo de toma manual: selecciona el tipo de pedido y la mesa correspondiente.";
+
+  tableField.appendChild(notice);
 }
 
 /**
@@ -234,7 +324,7 @@ async function loadMenu() {
 }
 
 /**
- * Carga las mesas activas.
+ * Carga mesas activas.
  *
  * @returns {Promise<void>}
  */
@@ -272,7 +362,7 @@ async function loadTables() {
 }
 
 /**
- * Renderiza las opciones del selector de mesas.
+ * Renderiza las opciones de mesa.
  */
 function renderTableOptions() {
   const tableSelect =
@@ -294,8 +384,12 @@ function renderTableOptions() {
     return;
   }
 
-  tableSelect.innerHTML =
-    state.tables
+  tableSelect.innerHTML = `
+    <option value="">
+      Selecciona una mesa
+    </option>
+
+    ${state.tables
       .map((table) => {
         const label =
           table.nombre ||
@@ -309,14 +403,16 @@ function renderTableOptions() {
           </option>
         `;
       })
-      .join("");
+      .join("")}
+  `;
 }
 
 /**
- * Aplica y bloquea la mesa identificada por el QR.
+ * Aplica la mesa identificada por QR.
  */
 function applyQRTable() {
   if (!state.qrTableNumber) {
+    enableManualOrderMode();
     return;
   }
 
@@ -333,6 +429,7 @@ function applyQRTable() {
     );
 
     state.qrTable = null;
+    enableManualOrderMode();
     return;
   }
 
@@ -364,7 +461,7 @@ function applyQRTable() {
 }
 
 /**
- * Muestra una indicación visual de la mesa detectada.
+ * Muestra el aviso de mesa detectada.
  */
 function renderQRTableNotice() {
   if (!state.qrTable) {
@@ -380,14 +477,7 @@ function renderQRTableNotice() {
     return;
   }
 
-  const previousNotice =
-    document.querySelector(
-      "#qr-table-notice"
-    );
-
-  if (previousNotice) {
-    previousNotice.remove();
-  }
+  removeModeNotices();
 
   const label =
     state.qrTable.nombre ||
@@ -398,6 +488,7 @@ function renderQRTableNotice() {
 
   notice.id = "qr-table-notice";
   notice.className = "qr-table-notice";
+
   notice.textContent =
     `${label} identificada automáticamente mediante el código QR.`;
 
@@ -405,7 +496,24 @@ function renderQRTableNotice() {
 }
 
 /**
- * Renderiza el menú agrupado por categoría.
+ * Elimina avisos previos del modo de toma.
+ */
+function removeModeNotices() {
+  [
+    "#qr-table-notice",
+    "#admin-mode-notice"
+  ].forEach((selector) => {
+    const element =
+      document.querySelector(selector);
+
+    if (element) {
+      element.remove();
+    }
+  });
+}
+
+/**
+ * Renderiza el menú.
  */
 function renderMenu() {
   const searchInput =
@@ -615,11 +723,16 @@ function addProduct(productId) {
     existingItem.cantidad += 1;
   } else {
     state.cart.push({
-      producto_id: Number(product.id),
-      nombre: product.nombre,
-      precio: Number(product.precio),
-      cantidad: 1,
-      observaciones: ""
+      producto_id:
+        Number(product.id),
+      nombre:
+        product.nombre,
+      precio:
+        Number(product.precio),
+      cantidad:
+        1,
+      observaciones:
+        ""
     });
   }
 
@@ -628,7 +741,7 @@ function addProduct(productId) {
 }
 
 /**
- * Modifica la cantidad de un producto.
+ * Modifica la cantidad.
  *
  * @param {number} productId
  * @param {number} variation
@@ -706,7 +819,9 @@ function renderCart() {
               </strong>
 
               <span>
-                ${money(item.precio)} c/u
+                ${money(
+                  item.precio
+                )} c/u
               </span>
             </div>
 
@@ -722,7 +837,9 @@ function renderCart() {
               </button>
 
               <strong>
-                ${Number(item.cantidad)}
+                ${Number(
+                  item.cantidad
+                )}
               </strong>
 
               <button
@@ -741,7 +858,9 @@ function renderCart() {
       .join("");
 
   cartContainer
-    .querySelectorAll("[data-minus]")
+    .querySelectorAll(
+      "[data-minus]"
+    )
     .forEach((button) => {
       button.addEventListener(
         "click",
@@ -757,7 +876,9 @@ function renderCart() {
     });
 
   cartContainer
-    .querySelectorAll("[data-plus]")
+    .querySelectorAll(
+      "[data-plus]"
+    )
     .forEach((button) => {
       button.addEventListener(
         "click",
@@ -786,7 +907,7 @@ function renderCart() {
 }
 
 /**
- * Cambia los campos visibles según el tipo de pedido.
+ * Muestra los campos según tipo de pedido.
  */
 function toggleOrderFields() {
   const orderType =
@@ -820,7 +941,10 @@ function toggleOrderFields() {
   addressField.hidden =
     type !== "delivery";
 
-  if (state.qrTable) {
+  if (
+    state.qrTable &&
+    !state.adminMode
+  ) {
     orderType.value = "mesa";
     orderType.disabled = true;
     tableField.hidden = false;
@@ -829,7 +953,7 @@ function toggleOrderFields() {
 }
 
 /**
- * Registra el pedido.
+ * Registra un pedido.
  *
  * @returns {Promise<void>}
  */
@@ -865,7 +989,8 @@ async function submitOrder() {
     );
 
   const orderType =
-    state.qrTable
+    state.qrTable &&
+    !state.adminMode
       ? "mesa"
       : orderTypeElement?.value;
 
@@ -916,39 +1041,40 @@ async function submitOrder() {
     const {
       data,
       error
-    } = await window.toscanaSupabase.rpc(
-      "crear_pedido",
-      {
-        p_tipo: orderType,
-        p_mesa_id: tableId,
-        p_cliente_nombre:
-          getInputValue(
-            "#customer-name"
-          ) || null,
-        p_cliente_telefono:
-          getInputValue(
-            "#customer-phone"
-          ) || null,
-        p_direccion_entrega:
-          address || null,
-        p_observaciones:
-          getInputValue(
-            "#order-notes"
-          ) || null,
-        p_items:
-          state.cart.map(
-            (item) => ({
-              producto_id:
-                item.producto_id,
-              cantidad:
-                item.cantidad,
-              observaciones:
-                item.observaciones ||
-                null
-            })
-          )
-      }
-    );
+    } =
+      await window.toscanaSupabase.rpc(
+        "crear_pedido",
+        {
+          p_tipo: orderType,
+          p_mesa_id: tableId,
+          p_cliente_nombre:
+            getInputValue(
+              "#customer-name"
+            ) || null,
+          p_cliente_telefono:
+            getInputValue(
+              "#customer-phone"
+            ) || null,
+          p_direccion_entrega:
+            address || null,
+          p_observaciones:
+            getInputValue(
+              "#order-notes"
+            ) || null,
+          p_items:
+            state.cart.map(
+              (item) => ({
+                producto_id:
+                  item.producto_id,
+                cantidad:
+                  item.cantidad,
+                observaciones:
+                  item.observaciones ||
+                  null
+              })
+            )
+        }
+      );
 
     if (error) {
       throw error;
@@ -1015,7 +1141,7 @@ function startNewOrder() {
     successDialog.close();
   }
 
-  applyQRTable();
+  applyURLConfiguration();
   toggleOrderFields();
 }
 
@@ -1029,7 +1155,7 @@ function clearCart() {
 }
 
 /**
- * Limpia datos del cliente sin cambiar la mesa QR.
+ * Limpia campos del cliente.
  */
 function clearCustomerFields() {
   const selectors = [
@@ -1050,7 +1176,7 @@ function clearCustomerFields() {
 }
 
 /**
- * Guarda el carrito en el navegador.
+ * Guarda carrito.
  */
 function saveCart() {
   localStorage.setItem(
@@ -1060,7 +1186,7 @@ function saveCart() {
 }
 
 /**
- * Recupera el carrito guardado.
+ * Restaura carrito.
  */
 function restoreCart() {
   try {
@@ -1081,7 +1207,7 @@ function restoreCart() {
 }
 
 /**
- * Obtiene el valor limpio de un campo.
+ * Obtiene un valor de campo.
  *
  * @param {string} selector
  * @returns {string}
@@ -1096,7 +1222,7 @@ function getInputValue(selector) {
 }
 
 /**
- * Muestra un mensaje del pedido.
+ * Muestra mensaje.
  *
  * @param {string} text
  */
@@ -1115,7 +1241,7 @@ function showMessage(text) {
 }
 
 /**
- * Limpia el mensaje del pedido.
+ * Limpia mensaje.
  */
 function clearMessage() {
   const message =
@@ -1132,7 +1258,7 @@ function clearMessage() {
 }
 
 /**
- * Asigna texto a un elemento.
+ * Asigna texto.
  *
  * @param {string} selector
  * @param {unknown} value
@@ -1148,7 +1274,7 @@ function setText(selector, value) {
 }
 
 /**
- * Formatea valores monetarios.
+ * Formatea dinero.
  *
  * @param {unknown} value
  * @returns {string}
@@ -1164,7 +1290,7 @@ function money(value) {
 }
 
 /**
- * Convierte un estado técnico a texto.
+ * Convierte texto técnico.
  *
  * @param {unknown} value
  * @returns {string}
@@ -1180,7 +1306,7 @@ function pretty(value) {
 }
 
 /**
- * Genera un slug.
+ * Genera slug.
  *
  * @param {unknown} value
  * @returns {string}
@@ -1198,13 +1324,13 @@ function slug(value) {
       "-"
     )
     .replace(
-      /^-|-$|/g,
+      /^-|-$/g,
       ""
     );
 }
 
 /**
- * Escapa texto para insertarlo en HTML.
+ * Escapa HTML.
  *
  * @param {unknown} value
  * @returns {string}
