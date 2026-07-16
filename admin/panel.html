@@ -2,25 +2,54 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex, nofollow">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+  <meta
+    name="robots"
+    content="noindex, nofollow"
+  >
 
-  <title>Panel administrativo | Toscana Grill</title>
+  <title>
+    Panel administrativo | Toscana Grill
+  </title>
 
-  <link rel="stylesheet" href="../css/panel.css?v=6">
+  <link
+    rel="stylesheet"
+    href="../css/panel.css?v=7"
+  >
 </head>
 
 <body>
-  <div id="app-loading" class="app-loading">
+  <div
+    id="app-loading"
+    class="app-loading"
+  >
     <div class="loader"></div>
-    <p>Validando sesión…</p>
+
+    <p>
+      Validando sesión…
+    </p>
   </div>
 
-  <div id="admin-app" class="admin-app" hidden>
-    <aside id="sidebar" class="sidebar">
+  <div
+    id="admin-app"
+    class="admin-app"
+    hidden
+  >
+    <aside
+      id="sidebar"
+      class="sidebar"
+    >
       <div class="sidebar-brand">
-        <span>Toscana Grill</span>
-        <strong>Gestión de pedidos</strong>
+        <span>
+          Toscana Grill
+        </span>
+
+        <strong>
+          Gestión de pedidos
+        </strong>
       </div>
 
       <nav class="sidebar-nav">
@@ -87,7 +116,19 @@
       </nav>
 
       <div class="sidebar-footer">
-        <a href="../index.html">
+        <a
+          href="../index.html?modo=admin"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Nuevo pedido
+        </a>
+
+        <a
+          href="../index.html"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           Ver menú público
         </a>
 
@@ -113,12 +154,16 @@
             class="sidebar-toggle"
             type="button"
             aria-label="Abrir menú lateral"
+            aria-controls="sidebar"
+            aria-expanded="false"
           >
             ☰
           </button>
 
           <div>
-            <p>Panel administrativo</p>
+            <p>
+              Panel administrativo
+            </p>
 
             <h1 id="page-title">
               Dashboard
@@ -158,7 +203,10 @@
       >
         <div class="view-loading">
           <div class="loader"></div>
-          <p>Cargando módulo…</p>
+
+          <p>
+            Cargando módulo…
+          </p>
         </div>
       </div>
     </main>
@@ -197,7 +245,8 @@
   <script src="../js/modules/cocina.js?v=3"></script>
   <script src="../js/modules/caja.js?v=2"></script>
   <script src="../js/modules/historial.js?v=1"></script>
+  <script src="../js/modules/productos.js?v=1"></script>
 
-  <script src="../js/panel.js?v=5"></script>
+  <script src="../js/panel.js?v=6"></script>
 </body>
 </html>
