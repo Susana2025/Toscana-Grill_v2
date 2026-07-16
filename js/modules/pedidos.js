@@ -9,15 +9,21 @@
  * - Filtrar pedidos por estado.
  * - Renderizar tarjetas.
  * - Abrir el detalle mediante panel.js.
- *
- * Este módulo no controla autenticación, navegación global ni sesión.
+ * - Actualizarse automáticamente mediante Supabase Realtime.
  */
 
 (function initializeOrdersModule() {
+  const REALTIME_REFRESH_DELAY = 350;
+
   const state = {
     initialized: false,
+    loading: false,
+    refreshPending: false,
     orders: [],
     activeFilter: "todos",
+    realtimeTimer: null,
+    unsubscribeRealtime: null,
+
     callbacks: {
       showMessage: null,
       clearMessage: null,
@@ -26,7 +32,7 @@
   };
 
   /**
-   * Inicializa el módulo.
+   * Inicializa el módulo Pedidos.
    *
    * @param {object} options
    * @param {Function} options.showMessage
@@ -65,6 +71,7 @@
     }
 
     setupEvents();
+    setupRealtime();
 
     state.initialized = true;
 
@@ -72,7 +79,7 @@
   }
 
   /**
-   * Valida dependencias requeridas.
+   * Valida las dependencias globales.
    */
   function validateDependencies() {
     if (!window.toscanaSupabase) {
@@ -92,15 +99,20 @@
         "Las utilidades compartidas no están disponibles."
       );
     }
+
+    if (!window.toscanaRealtime) {
+      throw new Error(
+        "El servicio Realtime no está disponible."
+      );
+    }
   }
 
   /**
-   * Configura eventos internos.
+   * Configura los eventos internos.
    */
   function setupEvents() {
-    const refreshButton = document.querySelector(
-      "#refresh-orders"
-    );
+    const refreshButton =
+      document.querySelector("#refresh-orders");
 
     if (refreshButton) {
       refreshButton.addEventListener(
@@ -112,25 +124,101 @@
     document
       .querySelectorAll("[data-order-filter]")
       .forEach((button) => {
-        button.addEventListener("click", () => {
-          const filter =
-            button.dataset.orderFilter ||
-            "todos";
+        button.addEventListener(
+          "click",
+          () => {
+            const filter =
+              button.dataset.orderFilter ||
+              "todos";
 
-          state.activeFilter = filter;
+            state.activeFilter = filter;
 
-          document
-            .querySelectorAll("[data-order-filter]")
-            .forEach((filterButton) => {
-              filterButton.classList.toggle(
-                "active",
-                filterButton === button
-              );
-            });
+            document
+              .querySelectorAll(
+                "[data-order-filter]"
+              )
+              .forEach((filterButton) => {
+                filterButton.classList.toggle(
+                  "active",
+                  filterButton === button
+                );
+              });
 
-          render();
-        });
+            render();
+          }
+        );
       });
+  }
+
+  /**
+   * Activa la suscripción Realtime.
+   */
+  function setupRealtime() {
+    if (state.unsubscribeRealtime) {
+      state.unsubscribeRealtime();
+    }
+
+    state.unsubscribeRealtime =
+      window.toscanaRealtime.subscribe(
+        handleRealtimeChange
+      );
+  }
+
+  /**
+   * Procesa cambios recibidos desde Supabase.
+   *
+   * @param {object} event
+   */
+  function handleRealtimeChange(event) {
+    if (!state.initialized) {
+      return;
+    }
+
+    if (
+      !document.querySelector(
+        "#view-pedidos"
+      )
+    ) {
+      return;
+    }
+
+    if (
+      ![
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ].includes(event?.type)
+    ) {
+      return;
+    }
+
+    scheduleRealtimeRefresh();
+  }
+
+  /**
+   * Agrupa eventos consecutivos antes de recargar.
+   */
+  function scheduleRealtimeRefresh() {
+    if (state.realtimeTimer) {
+      window.clearTimeout(
+        state.realtimeTimer
+      );
+    }
+
+    state.realtimeTimer =
+      window.setTimeout(
+        async () => {
+          state.realtimeTimer = null;
+
+          if (state.loading) {
+            state.refreshPending = true;
+            return;
+          }
+
+          await refresh();
+        },
+        REALTIME_REFRESH_DELAY
+      );
   }
 
   /**
@@ -139,33 +227,57 @@
    * @returns {Promise<void>}
    */
   async function refresh() {
-    if (!document.querySelector("#view-pedidos")) {
+    if (
+      !document.querySelector(
+        "#view-pedidos"
+      )
+    ) {
       return;
     }
 
+    if (state.loading) {
+      state.refreshPending = true;
+      return;
+    }
+
+    state.loading = true;
+    state.refreshPending = false;
+
     state.callbacks.clearMessage();
 
-    const refreshButton = document.querySelector(
-      "#refresh-orders"
-    );
+    const refreshButton =
+      document.querySelector(
+        "#refresh-orders"
+      );
 
-    const loading = document.querySelector(
-      "#active-orders-loading"
-    );
+    const loading =
+      document.querySelector(
+        "#active-orders-loading"
+      );
 
-    const empty = document.querySelector(
-      "#active-orders-empty"
-    );
+    const empty =
+      document.querySelector(
+        "#active-orders-empty"
+      );
 
-    const list = document.querySelector(
-      "#active-orders-list"
-    );
+    const list =
+      document.querySelector(
+        "#active-orders-list"
+      );
 
-    const count = document.querySelector(
-      "#active-orders-count"
-    );
+    const count =
+      document.querySelector(
+        "#active-orders-count"
+      );
 
-    if (!loading || !empty || !list || !count) {
+    if (
+      !loading ||
+      !empty ||
+      !list ||
+      !count
+    ) {
+      state.loading = false;
+
       state.callbacks.showMessage(
         "La estructura del módulo Pedidos está incompleta."
       );
@@ -185,12 +297,12 @@
     count.textContent = "0";
 
     try {
-      const { data, error } =
-        await window.toscanaSupabase.rpc(
-          "listar_pedidos_activos"
-        );
-
-      loading.hidden = true;
+      const {
+        data,
+        error
+      } = await window.toscanaSupabase.rpc(
+        "listar_pedidos_activos"
+      );
 
       if (error) {
         console.error(
@@ -213,36 +325,54 @@
         error
       );
 
-      loading.hidden = true;
+      state.orders = [];
 
       state.callbacks.showMessage(
         error?.message ||
-          "No fue posible actualizar el módulo Pedidos."
+        "No fue posible actualizar el módulo Pedidos."
       );
+
+      render();
     } finally {
+      loading.hidden = true;
+
       window.toscanaUtils.setButtonLoading(
         refreshButton,
         false,
         "Actualizar"
       );
+
+      state.loading = false;
+
+      if (state.refreshPending) {
+        state.refreshPending = false;
+
+        window.setTimeout(
+          refresh,
+          150
+        );
+      }
     }
   }
 
   /**
-   * Renderiza pedidos según filtro activo.
+   * Renderiza los pedidos aplicando el filtro actual.
    */
   function render() {
-    const empty = document.querySelector(
-      "#active-orders-empty"
-    );
+    const empty =
+      document.querySelector(
+        "#active-orders-empty"
+      );
 
-    const list = document.querySelector(
-      "#active-orders-list"
-    );
+    const list =
+      document.querySelector(
+        "#active-orders-list"
+      );
 
-    const count = document.querySelector(
-      "#active-orders-count"
-    );
+    const count =
+      document.querySelector(
+        "#active-orders-count"
+      );
 
     if (!empty || !list || !count) {
       return;
@@ -257,9 +387,8 @@
               state.activeFilter
           );
 
-    count.textContent = String(
-      filteredOrders.length
-    );
+    count.textContent =
+      String(filteredOrders.length);
 
     empty.hidden =
       filteredOrders.length > 0;
@@ -283,7 +412,8 @@
    * @returns {string}
    */
   function createOrderCard(order) {
-    const utils = window.toscanaUtils;
+    const utils =
+      window.toscanaUtils;
 
     const orderId =
       order.pedido_id ||
@@ -297,7 +427,12 @@
     const location =
       utils.getOrderLocation(order);
 
-    const customer =
+    const elapsedTime =
+      utils.getElapsedTime(
+        order.creado_en
+      );
+
+    const customerHTML =
       order.cliente_nombre
         ? `
           <p class="order-customer">
@@ -309,15 +444,12 @@
         `
         : "";
 
-    const elapsedTime =
-      utils.getElapsedTime(
-        order.creado_en
-      );
-
     return `
       <article
         class="order-card"
-        data-id="${utils.escapeHTML(orderId)}"
+        data-id="${utils.escapeHTML(
+          orderId
+        )}"
         tabindex="0"
         role="button"
         aria-label="Abrir pedido ${utils.escapeHTML(
@@ -327,11 +459,15 @@
         <div class="order-card-header">
           <div>
             <strong>
-              ${utils.escapeHTML(ticket)}
+              ${utils.escapeHTML(
+                ticket
+              )}
             </strong>
 
             <span>
-              ${utils.escapeHTML(location)}
+              ${utils.escapeHTML(
+                location
+              )}
             </span>
           </div>
 
@@ -341,12 +477,14 @@
             )}"
           >
             ${utils.escapeHTML(
-              utils.pretty(order.estado)
+              utils.pretty(
+                order.estado
+              )
             )}
           </span>
         </div>
 
-        ${customer}
+        ${customerHTML}
 
         <div class="order-card-body">
           <div>
@@ -363,7 +501,9 @@
             <span>Total</span>
 
             <strong>
-              ${utils.money(order.total)}
+              ${utils.money(
+                order.total
+              )}
             </strong>
           </div>
 
@@ -391,7 +531,8 @@
       .querySelectorAll(".order-card")
       .forEach((card) => {
         const openCard = () => {
-          const orderId = card.dataset.id;
+          const orderId =
+            card.dataset.id;
 
           if (
             orderId &&
@@ -424,12 +565,27 @@
   }
 
   /**
-   * Limpia el estado interno.
+   * Limpia el módulo y cancela Realtime.
    */
   function destroy() {
     state.initialized = false;
+    state.loading = false;
+    state.refreshPending = false;
     state.orders = [];
     state.activeFilter = "todos";
+
+    if (state.realtimeTimer) {
+      window.clearTimeout(
+        state.realtimeTimer
+      );
+
+      state.realtimeTimer = null;
+    }
+
+    if (state.unsubscribeRealtime) {
+      state.unsubscribeRealtime();
+      state.unsubscribeRealtime = null;
+    }
 
     state.callbacks = {
       showMessage: null,
@@ -439,14 +595,15 @@
   }
 
   /**
-   * Muestra mensaje global por defecto.
+   * Muestra un mensaje global por defecto.
    *
    * @param {string} message
    */
   function defaultShowMessage(message) {
-    const element = document.querySelector(
-      "#global-message"
-    );
+    const element =
+      document.querySelector(
+        "#global-message"
+      );
 
     if (!element) {
       return;
@@ -460,9 +617,10 @@
    * Limpia el mensaje global por defecto.
    */
   function defaultClearMessage() {
-    const element = document.querySelector(
-      "#global-message"
-    );
+    const element =
+      document.querySelector(
+        "#global-message"
+      );
 
     if (!element) {
       return;
@@ -477,12 +635,15 @@
       initialize,
       refresh,
       destroy,
+
       getOrders() {
         return [...state.orders];
       },
+
       getActiveFilter() {
         return state.activeFilter;
       },
+
       isInitialized() {
         return state.initialized;
       }
