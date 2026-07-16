@@ -1,0 +1,166 @@
+<section id="view-cocina" class="panel-view active">
+  <div class="view-header">
+    <div>
+      <h2>Panel de cocina</h2>
+      <p>
+        Gestiona la preparación de los pedidos confirmados y controla
+        su avance hasta que estén listos para entregar.
+      </p>
+    </div>
+
+    <button
+      id="refresh-kitchen"
+      class="secondary-button"
+      type="button"
+    >
+      Actualizar
+    </button>
+  </div>
+
+  <div class="kitchen-summary">
+    <article class="metric-card">
+      <span>Por preparar</span>
+      <strong id="kitchen-confirmed-count">0</strong>
+      <small>Pedidos confirmados</small>
+    </article>
+
+    <article class="metric-card">
+      <span>En preparación</span>
+      <strong id="kitchen-preparing-count">0</strong>
+      <small>Pedidos en cocina</small>
+    </article>
+
+    <article class="metric-card">
+      <span>Listos</span>
+      <strong id="kitchen-ready-count">0</strong>
+      <small>Pendientes de entrega</small>
+    </article>
+  </div>
+
+  <div
+    id="kitchen-loading"
+    class="section-loading"
+    hidden
+  >
+    Cargando pedidos de cocina…
+  </div>
+
+  <div class="kitchen-board">
+    <section
+      class="kitchen-column"
+      data-kitchen-column="confirmado"
+    >
+      <header class="kitchen-column-header">
+        <div>
+          <span class="kitchen-column-indicator"></span>
+
+          <div>
+            <h3>Por preparar</h3>
+            <p>Pedidos confirmados</p>
+          </div>
+        </div>
+
+        <span
+          id="kitchen-confirmed-badge"
+          class="counter-badge"
+        >
+          0
+        </span>
+      </header>
+
+      <div
+        id="kitchen-confirmed-list"
+        class="kitchen-orders-list"
+      ></div>
+
+      <div
+        id="kitchen-confirmed-empty"
+        class="empty-state kitchen-empty"
+        hidden
+      >
+        <strong>No hay pedidos por preparar.</strong>
+        <p>
+          Los pedidos confirmados aparecerán en esta columna.
+        </p>
+      </div>
+    </section>
+
+    <section
+      class="kitchen-column"
+      data-kitchen-column="en_preparacion"
+    >
+      <header class="kitchen-column-header">
+        <div>
+          <span class="kitchen-column-indicator"></span>
+
+          <div>
+            <h3>En preparación</h3>
+            <p>Pedidos que cocina está procesando</p>
+          </div>
+        </div>
+
+        <span
+          id="kitchen-preparing-badge"
+          class="counter-badge"
+        >
+          0
+        </span>
+      </header>
+
+      <div
+        id="kitchen-preparing-list"
+        class="kitchen-orders-list"
+      ></div>
+
+      <div
+        id="kitchen-preparing-empty"
+        class="empty-state kitchen-empty"
+        hidden
+      >
+        <strong>No hay pedidos en preparación.</strong>
+        <p>
+          Los pedidos iniciados aparecerán en esta columna.
+        </p>
+      </div>
+    </section>
+
+    <section
+      class="kitchen-column"
+      data-kitchen-column="listo"
+    >
+      <header class="kitchen-column-header">
+        <div>
+          <span class="kitchen-column-indicator"></span>
+
+          <div>
+            <h3>Listos</h3>
+            <p>Pedidos terminados y pendientes de entrega</p>
+          </div>
+        </div>
+
+        <span
+          id="kitchen-ready-badge"
+          class="counter-badge"
+        >
+          0
+        </span>
+      </header>
+
+      <div
+        id="kitchen-ready-list"
+        class="kitchen-orders-list"
+      ></div>
+
+      <div
+        id="kitchen-ready-empty"
+        class="empty-state kitchen-empty"
+        hidden
+      >
+        <strong>No hay pedidos listos.</strong>
+        <p>
+          Los pedidos terminados aparecerán en esta columna.
+        </p>
+      </div>
+    </section>
+  </div>
+</section>
