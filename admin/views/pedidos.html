@@ -1,0 +1,91 @@
+<section id="view-pedidos" class="panel-view active">
+  <div class="view-header">
+    <div>
+      <h2>Pedidos activos</h2>
+      <p>Consulta y gestiona los pedidos que todavía se encuentran en operación.</p>
+    </div>
+
+    <button
+      id="refresh-orders"
+      class="secondary-button"
+      type="button"
+    >
+      Actualizar
+    </button>
+  </div>
+
+  <div class="content-card">
+    <div class="card-header">
+      <div>
+        <h2>Listado de pedidos</h2>
+        <p>Selecciona un pedido para consultar su detalle.</p>
+      </div>
+
+      <span id="active-orders-count" class="counter-badge">0</span>
+    </div>
+
+    <div class="orders-filters">
+      <button
+        class="filter-button active"
+        type="button"
+        data-order-filter="todos"
+      >
+        Todos
+      </button>
+
+      <button
+        class="filter-button"
+        type="button"
+        data-order-filter="pendiente"
+      >
+        Pendientes
+      </button>
+
+      <button
+        class="filter-button"
+        type="button"
+        data-order-filter="confirmado"
+      >
+        Confirmados
+      </button>
+
+      <button
+        class="filter-button"
+        type="button"
+        data-order-filter="en_preparacion"
+      >
+        En preparación
+      </button>
+
+      <button
+        class="filter-button"
+        type="button"
+        data-order-filter="listo"
+      >
+        Listos
+      </button>
+    </div>
+
+    <div
+      id="active-orders-loading"
+      class="section-loading"
+      hidden
+    >
+      Cargando pedidos…
+    </div>
+
+    <div
+      id="active-orders-empty"
+      class="empty-state"
+      hidden
+    >
+      <strong>No existen pedidos para mostrar.</strong>
+      <p>Los nuevos pedidos aparecerán automáticamente en este módulo.</p>
+    </div>
+
+    <div
+      id="active-orders-list"
+      class="orders-list"
+    ></div>
+  </div>
+</section>
