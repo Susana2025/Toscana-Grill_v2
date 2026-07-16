@@ -7,7 +7,7 @@
 
   <title>Panel administrativo | Toscana Grill</title>
 
-  <link rel="stylesheet" href="../css/panel.css?v=1">
+  <link rel="stylesheet" href="../css/panel.css?v=2">
 </head>
 
 <body>
@@ -87,7 +87,9 @@
       </nav>
 
       <div class="sidebar-footer">
-        <a href="../index.html">Ver menú público</a>
+        <a href="../index.html">
+          Ver menú público
+        </a>
 
         <button
           id="logout-button"
@@ -117,7 +119,9 @@
 
           <div>
             <p>Panel administrativo</p>
-            <h1 id="page-title">Dashboard</h1>
+            <h1 id="page-title">
+              Dashboard
+            </h1>
           </div>
         </div>
 
@@ -130,8 +134,13 @@
           </div>
 
           <div>
-            <strong id="user-name">Usuario</strong>
-            <span id="user-role">Rol</span>
+            <strong id="user-name">
+              Usuario
+            </strong>
+
+            <span id="user-role">
+              Rol
+            </span>
           </div>
         </div>
       </header>
@@ -173,9 +182,18 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <script src="../js/supabase-config.js?v=1"></script>
   <script src="../js/supabase-client.js?v=1"></script>
+
+  <script src="../js/shared/utils.js?v=1"></script>
+
   <script src="../js/core/view-loader.js?v=1"></script>
-  <script src="../js/panel.js?v=2"></script>
+
+  <script src="../js/modules/dashboard.js?v=1"></script>
+  <script src="../js/modules/pedidos.js?v=1"></script>
+  <script src="../js/modules/cocina.js?v=1"></script>
+
+  <script src="../js/panel.js?v=3"></script>
 </body>
 </html>
