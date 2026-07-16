@@ -1,120 +1,1227 @@
 "use strict";
-const state = { menu: [], tables: [], cart: [] };
-document.addEventListener("DOMContentLoaded", init);
 
-async function init() {
+/**
+ * Menú público de Toscana Grill.
+ *
+ * Funciones principales:
+ * - Cargar productos y mesas desde Supabase.
+ * - Detectar la mesa desde la URL: ?mesa=1
+ * - Bloquear la mesa cuando proviene de un QR.
+ * - Gestionar carrito y cantidades.
+ * - Registrar pedidos mediante la RPC crear_pedido.
+ */
+
+const state = {
+  menu: [],
+  tables: [],
+  cart: [],
+  qrTableNumber: null,
+  qrTable: null
+};
+
+document.addEventListener("DOMContentLoaded", initializeApp);
+
+/**
+ * Inicializa el menú público.
+ *
+ * @returns {Promise<void>}
+ */
+async function initializeApp() {
   bindEvents();
-  if (!window.toscanaSupabase) return showMessage("Configura Supabase antes de registrar pedidos.");
-  await Promise.all([loadMenu(), loadTables()]);
-  restoreCart();
-  renderCart();
-}
+  detectTableFromURL();
 
-function bindEvents() {
-  document.querySelector("#search").addEventListener("input", renderMenu);
-  document.querySelector("#clear-cart").addEventListener("click", () => { state.cart=[]; saveCart(); renderCart(); });
-  document.querySelector("#order-type").addEventListener("change", toggleOrderFields);
-  document.querySelector("#submit-order").addEventListener("click", submitOrder);
-  document.querySelector("#new-order").addEventListener("click", () => {
-    state.cart=[]; saveCart(); renderCart(); document.querySelector("#success-dialog").close();
-  });
-}
+  if (!window.toscanaSupabase) {
+    showMessage(
+      "No se configuró correctamente la conexión con Supabase."
+    );
 
-async function loadMenu() {
-  const { data, error } = await window.toscanaSupabase
-    .from("productos")
-    .select("id,nombre,descripcion,precio,categoria_id,categorias(id,nombre,orden)")
-    .eq("activo", true).eq("disponible", true)
-    .order("nombre");
-  if (error) {
-    console.warn("No se pudo leer productos desde Supabase; usando data/menu.json.", error);
-    const fallback = await fetch("data/menu.json").then(r => r.json());
-    state.menu = fallback.productos || [];
-  } else {
-    state.menu = data.map(p => ({ ...p, categoria: p.categorias?.nombre || "Otros" }));
+    return;
   }
+
+  try {
+    await Promise.all([
+      loadMenu(),
+      loadTables()
+    ]);
+
+    restoreCart();
+    renderCart();
+    applyQRTable();
+    toggleOrderFields();
+  } catch (error) {
+    console.error(
+      "Error al inicializar el menú:",
+      error
+    );
+
+    showMessage(
+      error?.message ||
+      "No fue posible cargar el menú."
+    );
+  }
+}
+
+/**
+ * Configura los eventos permanentes.
+ */
+function bindEvents() {
+  const searchInput =
+    document.querySelector("#search");
+
+  const clearCartButton =
+    document.querySelector("#clear-cart");
+
+  const orderType =
+    document.querySelector("#order-type");
+
+  const submitButton =
+    document.querySelector("#submit-order");
+
+  const newOrderButton =
+    document.querySelector("#new-order");
+
+  if (searchInput) {
+    searchInput.addEventListener(
+      "input",
+      renderMenu
+    );
+  }
+
+  if (clearCartButton) {
+    clearCartButton.addEventListener(
+      "click",
+      clearCart
+    );
+  }
+
+  if (orderType) {
+    orderType.addEventListener(
+      "change",
+      toggleOrderFields
+    );
+  }
+
+  if (submitButton) {
+    submitButton.addEventListener(
+      "click",
+      submitOrder
+    );
+  }
+
+  if (newOrderButton) {
+    newOrderButton.addEventListener(
+      "click",
+      startNewOrder
+    );
+  }
+}
+
+/**
+ * Detecta el número de mesa incluido en la URL.
+ *
+ * Ejemplo:
+ * ?mesa=7
+ */
+function detectTableFromURL() {
+  const parameters =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  const tableParameter =
+    parameters.get("mesa");
+
+  if (!tableParameter) {
+    state.qrTableNumber = null;
+    return;
+  }
+
+  const tableNumber =
+    Number.parseInt(
+      tableParameter,
+      10
+    );
+
+  if (
+    !Number.isInteger(tableNumber) ||
+    tableNumber <= 0
+  ) {
+    state.qrTableNumber = null;
+
+    showMessage(
+      "El código QR contiene un número de mesa no válido."
+    );
+
+    return;
+  }
+
+  state.qrTableNumber = tableNumber;
+}
+
+/**
+ * Carga productos activos y disponibles.
+ *
+ * @returns {Promise<void>}
+ */
+async function loadMenu() {
+  const {
+    data,
+    error
+  } = await window.toscanaSupabase
+    .from("productos")
+    .select(`
+      id,
+      nombre,
+      descripcion,
+      precio,
+      categoria_id,
+      imagen_url,
+      categorias (
+        id,
+        nombre,
+        orden
+      )
+    `)
+    .eq("activo", true)
+    .eq("disponible", true)
+    .order("nombre");
+
+  if (error) {
+    console.warn(
+      "No se pudo cargar el menú desde Supabase. Se utilizará el archivo local.",
+      error
+    );
+
+    const response = await fetch(
+      "data/menu.json",
+      {
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        "No fue posible cargar el menú."
+      );
+    }
+
+    const fallback =
+      await response.json();
+
+    state.menu =
+      Array.isArray(
+        fallback.productos
+      )
+        ? fallback.productos
+        : [];
+  } else {
+    state.menu = (
+      Array.isArray(data)
+        ? data
+        : []
+    ).map((product) => ({
+      ...product,
+      categoria:
+        product.categorias?.nombre ||
+        "Otros",
+      categoria_orden:
+        product.categorias?.orden ||
+        999
+    }));
+  }
+
   renderMenu();
 }
 
+/**
+ * Carga las mesas activas.
+ *
+ * @returns {Promise<void>}
+ */
 async function loadTables() {
-  const { data, error } = await window.toscanaSupabase
-    .from("mesas").select("id,numero,nombre").eq("activa", true).order("numero");
-  state.tables = error ? [] : data;
-  document.querySelector("#table-select").innerHTML = state.tables
-    .map(t => `<option value="${t.id}">${escapeHtml(t.nombre || `Mesa ${t.numero}`)}</option>`).join("");
+  const {
+    data,
+    error
+  } = await window.toscanaSupabase
+    .from("mesas")
+    .select(
+      "id,numero,nombre,capacidad"
+    )
+    .eq("activa", true)
+    .order("numero");
+
+  if (error) {
+    console.error(
+      "No se pudieron cargar las mesas:",
+      error
+    );
+
+    state.tables = [];
+
+    throw new Error(
+      "No fue posible cargar las mesas."
+    );
+  }
+
+  state.tables =
+    Array.isArray(data)
+      ? data
+      : [];
+
+  renderTableOptions();
 }
 
+/**
+ * Renderiza las opciones del selector de mesas.
+ */
+function renderTableOptions() {
+  const tableSelect =
+    document.querySelector(
+      "#table-select"
+    );
+
+  if (!tableSelect) {
+    return;
+  }
+
+  if (state.tables.length === 0) {
+    tableSelect.innerHTML = `
+      <option value="">
+        No hay mesas disponibles
+      </option>
+    `;
+
+    return;
+  }
+
+  tableSelect.innerHTML =
+    state.tables
+      .map((table) => {
+        const label =
+          table.nombre ||
+          `Mesa ${table.numero}`;
+
+        return `
+          <option value="${escapeHTML(
+            table.id
+          )}">
+            ${escapeHTML(label)}
+          </option>
+        `;
+      })
+      .join("");
+}
+
+/**
+ * Aplica y bloquea la mesa identificada por el QR.
+ */
+function applyQRTable() {
+  if (!state.qrTableNumber) {
+    return;
+  }
+
+  const table =
+    state.tables.find(
+      (item) =>
+        Number(item.numero) ===
+        Number(state.qrTableNumber)
+    );
+
+  if (!table) {
+    showMessage(
+      `La Mesa ${state.qrTableNumber} no existe o está desactivada.`
+    );
+
+    state.qrTable = null;
+    return;
+  }
+
+  state.qrTable = table;
+
+  const orderType =
+    document.querySelector(
+      "#order-type"
+    );
+
+  const tableSelect =
+    document.querySelector(
+      "#table-select"
+    );
+
+  if (orderType) {
+    orderType.value = "mesa";
+    orderType.disabled = true;
+  }
+
+  if (tableSelect) {
+    tableSelect.value =
+      String(table.id);
+
+    tableSelect.disabled = true;
+  }
+
+  renderQRTableNotice();
+}
+
+/**
+ * Muestra una indicación visual de la mesa detectada.
+ */
+function renderQRTableNotice() {
+  if (!state.qrTable) {
+    return;
+  }
+
+  const tableField =
+    document.querySelector(
+      "#table-field"
+    );
+
+  if (!tableField) {
+    return;
+  }
+
+  const previousNotice =
+    document.querySelector(
+      "#qr-table-notice"
+    );
+
+  if (previousNotice) {
+    previousNotice.remove();
+  }
+
+  const label =
+    state.qrTable.nombre ||
+    `Mesa ${state.qrTable.numero}`;
+
+  const notice =
+    document.createElement("p");
+
+  notice.id = "qr-table-notice";
+  notice.className = "qr-table-notice";
+  notice.textContent =
+    `${label} identificada automáticamente mediante el código QR.`;
+
+  tableField.appendChild(notice);
+}
+
+/**
+ * Renderiza el menú agrupado por categoría.
+ */
 function renderMenu() {
-  const q = document.querySelector("#search").value.trim().toLowerCase();
-  const filtered = state.menu.filter(p => `${p.nombre} ${p.descripcion||""}`.toLowerCase().includes(q));
-  const groups = filtered.reduce((acc,p) => {
-    const key = p.categoria || p.categorias?.nombre || "Otros";
-    (acc[key] ||= []).push(p); return acc;
-  }, {});
-  document.querySelector("#category-nav").innerHTML = Object.keys(groups)
-    .map(c => `<button type="button" onclick="document.getElementById('${slug(c)}').scrollIntoView({behavior:'smooth'})">${escapeHtml(c)}</button>`).join("");
-  document.querySelector("#menu-container").innerHTML = Object.entries(groups).map(([cat,items]) => `
-    <section class="menu-section" id="${slug(cat)}"><h2>${escapeHtml(cat)}</h2>
-      <div class="product-grid">${items.map(productCard).join("")}</div>
-    </section>`).join("") || '<p class="empty">No se encontraron productos.</p>';
-  document.querySelectorAll("[data-add-product]").forEach(b => b.addEventListener("click", () => addProduct(Number(b.dataset.addProduct))));
+  const searchInput =
+    document.querySelector("#search");
+
+  const menuContainer =
+    document.querySelector(
+      "#menu-container"
+    );
+
+  const categoryNavigation =
+    document.querySelector(
+      "#category-nav"
+    );
+
+  if (
+    !menuContainer ||
+    !categoryNavigation
+  ) {
+    return;
+  }
+
+  const query =
+    String(
+      searchInput?.value || ""
+    )
+      .trim()
+      .toLowerCase();
+
+  const filteredProducts =
+    state.menu.filter((product) => {
+      const searchableText = `
+        ${product.nombre || ""}
+        ${product.descripcion || ""}
+        ${product.categoria || ""}
+      `.toLowerCase();
+
+      return searchableText.includes(query);
+    });
+
+  const groupedProducts =
+    filteredProducts.reduce(
+      (groups, product) => {
+        const category =
+          product.categoria ||
+          product.categorias?.nombre ||
+          "Otros";
+
+        if (!groups[category]) {
+          groups[category] = {
+            order:
+              product.categoria_orden ||
+              product.categorias?.orden ||
+              999,
+            products: []
+          };
+        }
+
+        groups[category].products.push(
+          product
+        );
+
+        return groups;
+      },
+      {}
+    );
+
+  const sortedGroups =
+    Object.entries(groupedProducts)
+      .sort(
+        (
+          [, firstGroup],
+          [, secondGroup]
+        ) =>
+          firstGroup.order -
+          secondGroup.order
+      );
+
+  categoryNavigation.innerHTML =
+    sortedGroups
+      .map(([category]) => {
+        return `
+          <a
+            href="#categoria-${slug(category)}"
+            class="category-link"
+          >
+            ${escapeHTML(category)}
+          </a>
+        `;
+      })
+      .join("");
+
+  menuContainer.innerHTML =
+    sortedGroups.length > 0
+      ? sortedGroups
+          .map(
+            ([category, group]) => `
+              <section
+                id="categoria-${slug(category)}"
+                class="menu-category"
+              >
+                <h2>
+                  ${escapeHTML(category)}
+                </h2>
+
+                <div class="products-grid">
+                  ${group.products
+                    .map(createProductCard)
+                    .join("")}
+                </div>
+              </section>
+            `
+          )
+          .join("")
+      : `
+          <div class="menu-empty">
+            <strong>
+              No se encontraron productos.
+            </strong>
+          </div>
+        `;
+
+  menuContainer
+    .querySelectorAll(
+      "[data-add-product]"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          addProduct(
+            Number(
+              button.dataset.addProduct
+            )
+          );
+        }
+      );
+    });
 }
 
-function productCard(p) {
-  return `<article class="product-card"><h3>${escapeHtml(p.nombre)}</h3><p>${escapeHtml(p.descripcion||"")}</p>
-    <footer><strong>${money(p.precio)}</strong><button data-add-product="${p.id}" type="button">Agregar</button></footer></article>`;
+/**
+ * Genera una tarjeta de producto.
+ *
+ * @param {object} product
+ * @returns {string}
+ */
+function createProductCard(product) {
+  return `
+    <article class="product-card">
+      <div class="product-card-content">
+        <h3>
+          ${escapeHTML(
+            product.nombre
+          )}
+        </h3>
+
+        <p>
+          ${escapeHTML(
+            product.descripcion || ""
+          )}
+        </p>
+      </div>
+
+      <div class="product-card-footer">
+        <strong>
+          ${money(product.precio)}
+        </strong>
+
+        <button
+          type="button"
+          data-add-product="${escapeHTML(
+            product.id
+          )}"
+        >
+          Agregar
+        </button>
+      </div>
+    </article>
+  `;
 }
-function addProduct(id) {
-  const product = state.menu.find(p => Number(p.id) === id); if (!product) return;
-  const existing = state.cart.find(i => i.producto_id === id);
-  if (existing) existing.cantidad += 1;
-  else state.cart.push({ producto_id:id, nombre:product.nombre, precio:Number(product.precio), cantidad:1, observaciones:"" });
-  saveCart(); renderCart();
+
+/**
+ * Agrega un producto al carrito.
+ *
+ * @param {number} productId
+ */
+function addProduct(productId) {
+  const product =
+    state.menu.find(
+      (item) =>
+        Number(item.id) ===
+        Number(productId)
+    );
+
+  if (!product) {
+    return;
+  }
+
+  const existingItem =
+    state.cart.find(
+      (item) =>
+        Number(item.producto_id) ===
+        Number(productId)
+    );
+
+  if (existingItem) {
+    existingItem.cantidad += 1;
+  } else {
+    state.cart.push({
+      producto_id: Number(product.id),
+      nombre: product.nombre,
+      precio: Number(product.precio),
+      cantidad: 1,
+      observaciones: ""
+    });
+  }
+
+  saveCart();
+  renderCart();
 }
-function changeQuantity(id, delta) {
-  const item=state.cart.find(i=>i.producto_id===id); if(!item)return;
-  item.cantidad+=delta; if(item.cantidad<=0) state.cart=state.cart.filter(i=>i.producto_id!==id);
-  saveCart(); renderCart();
+
+/**
+ * Modifica la cantidad de un producto.
+ *
+ * @param {number} productId
+ * @param {number} variation
+ */
+function changeQuantity(
+  productId,
+  variation
+) {
+  const item =
+    state.cart.find(
+      (product) =>
+        Number(product.producto_id) ===
+        Number(productId)
+    );
+
+  if (!item) {
+    return;
+  }
+
+  item.cantidad += variation;
+
+  if (item.cantidad <= 0) {
+    state.cart =
+      state.cart.filter(
+        (product) =>
+          Number(product.producto_id) !==
+          Number(productId)
+      );
+  }
+
+  saveCart();
+  renderCart();
 }
+
+/**
+ * Renderiza el carrito.
+ */
 function renderCart() {
-  const box=document.querySelector("#cart-items");
-  document.querySelector("#cart-empty").hidden=state.cart.length>0;
-  box.innerHTML=state.cart.map(i=>`<div class="cart-item"><div><strong>${escapeHtml(i.nombre)}</strong><small>${money(i.precio)} c/u</small></div>
-    <div class="cart-controls"><button data-minus="${i.producto_id}">−</button><span>${i.cantidad}</span><button data-plus="${i.producto_id}">+</button></div></div>`).join("");
-  box.querySelectorAll("[data-minus]").forEach(b=>b.onclick=()=>changeQuantity(Number(b.dataset.minus),-1));
-  box.querySelectorAll("[data-plus]").forEach(b=>b.onclick=()=>changeQuantity(Number(b.dataset.plus),1));
-  document.querySelector("#cart-total").textContent=money(state.cart.reduce((s,i)=>s+i.precio*i.cantidad,0));
+  const cartContainer =
+    document.querySelector(
+      "#cart-items"
+    );
+
+  const emptyMessage =
+    document.querySelector(
+      "#cart-empty"
+    );
+
+  const totalElement =
+    document.querySelector(
+      "#cart-total"
+    );
+
+  if (
+    !cartContainer ||
+    !emptyMessage ||
+    !totalElement
+  ) {
+    return;
+  }
+
+  emptyMessage.hidden =
+    state.cart.length > 0;
+
+  cartContainer.innerHTML =
+    state.cart
+      .map(
+        (item) => `
+          <article class="cart-item">
+            <div class="cart-item-info">
+              <strong>
+                ${escapeHTML(
+                  item.nombre
+                )}
+              </strong>
+
+              <span>
+                ${money(item.precio)} c/u
+              </span>
+            </div>
+
+            <div class="cart-item-controls">
+              <button
+                type="button"
+                data-minus="${escapeHTML(
+                  item.producto_id
+                )}"
+                aria-label="Reducir cantidad"
+              >
+                −
+              </button>
+
+              <strong>
+                ${Number(item.cantidad)}
+              </strong>
+
+              <button
+                type="button"
+                data-plus="${escapeHTML(
+                  item.producto_id
+                )}"
+                aria-label="Aumentar cantidad"
+              >
+                +
+              </button>
+            </div>
+          </article>
+        `
+      )
+      .join("");
+
+  cartContainer
+    .querySelectorAll("[data-minus]")
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          changeQuantity(
+            Number(
+              button.dataset.minus
+            ),
+            -1
+          );
+        }
+      );
+    });
+
+  cartContainer
+    .querySelectorAll("[data-plus]")
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => {
+          changeQuantity(
+            Number(
+              button.dataset.plus
+            ),
+            1
+          );
+        }
+      );
+    });
+
+  const total =
+    state.cart.reduce(
+      (sum, item) =>
+        sum +
+        Number(item.precio) *
+        Number(item.cantidad),
+      0
+    );
+
+  totalElement.textContent =
+    money(total);
 }
+
+/**
+ * Cambia los campos visibles según el tipo de pedido.
+ */
 function toggleOrderFields() {
-  const type=document.querySelector("#order-type").value;
-  document.querySelector("#table-field").hidden=type!=="mesa";
-  document.querySelector("#address-field").hidden=type!=="delivery";
+  const orderType =
+    document.querySelector(
+      "#order-type"
+    );
+
+  const tableField =
+    document.querySelector(
+      "#table-field"
+    );
+
+  const addressField =
+    document.querySelector(
+      "#address-field"
+    );
+
+  if (
+    !orderType ||
+    !tableField ||
+    !addressField
+  ) {
+    return;
+  }
+
+  const type = orderType.value;
+
+  tableField.hidden =
+    type !== "mesa";
+
+  addressField.hidden =
+    type !== "delivery";
+
+  if (state.qrTable) {
+    orderType.value = "mesa";
+    orderType.disabled = true;
+    tableField.hidden = false;
+    addressField.hidden = true;
+  }
 }
+
+/**
+ * Registra el pedido.
+ *
+ * @returns {Promise<void>}
+ */
 async function submitOrder() {
-  if (!state.cart.length) return showMessage("Agrega al menos un producto.");
-  const type=document.querySelector("#order-type").value;
-  const mesa=type==="mesa"?Number(document.querySelector("#table-select").value):null;
-  const address=document.querySelector("#delivery-address").value.trim();
-  if(type==="mesa"&&!mesa)return showMessage("Selecciona una mesa.");
-  if(type==="delivery"&&!address)return showMessage("Registra la dirección de entrega.");
-  const button=document.querySelector("#submit-order"); button.disabled=true; button.textContent="Registrando…";
-  const { data, error }=await window.toscanaSupabase.rpc("crear_pedido",{
-    p_tipo:type,p_mesa_id:mesa,p_cliente_nombre:document.querySelector("#customer-name").value.trim()||null,
-    p_cliente_telefono:document.querySelector("#customer-phone").value.trim()||null,
-    p_direccion_entrega:address||null,p_observaciones:document.querySelector("#order-notes").value.trim()||null,
-    p_items:state.cart.map(i=>({producto_id:i.producto_id,cantidad:i.cantidad,observaciones:i.observaciones||null}))
-  });
-  button.disabled=false; button.textContent="Confirmar pedido";
-  if(error)return showMessage(error.message||"No se pudo registrar el pedido.");
-  localStorage.setItem("toscana_ultimo_token",data.token_consulta);
-  document.querySelector("#success-ticket").textContent=data.ticket;
-  document.querySelector("#success-status").textContent=data.estado;
-  document.querySelector("#success-total").textContent=money(data.total);
-  document.querySelector("#success-dialog").showModal();
+  clearMessage();
+
+  if (state.cart.length === 0) {
+    showMessage(
+      "Agrega al menos un producto."
+    );
+
+    return;
+  }
+
+  const orderTypeElement =
+    document.querySelector(
+      "#order-type"
+    );
+
+  const tableSelect =
+    document.querySelector(
+      "#table-select"
+    );
+
+  const addressInput =
+    document.querySelector(
+      "#delivery-address"
+    );
+
+  const submitButton =
+    document.querySelector(
+      "#submit-order"
+    );
+
+  const orderType =
+    state.qrTable
+      ? "mesa"
+      : orderTypeElement?.value;
+
+  const tableId =
+    orderType === "mesa"
+      ? Number(
+          state.qrTable?.id ||
+          tableSelect?.value
+        )
+      : null;
+
+  const address =
+    String(
+      addressInput?.value || ""
+    ).trim();
+
+  if (
+    orderType === "mesa" &&
+    !tableId
+  ) {
+    showMessage(
+      "Selecciona una mesa."
+    );
+
+    return;
+  }
+
+  if (
+    orderType === "delivery" &&
+    !address
+  ) {
+    showMessage(
+      "Registra la dirección de entrega."
+    );
+
+    return;
+  }
+
+  if (!submitButton) {
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent =
+    "Registrando…";
+
+  try {
+    const {
+      data,
+      error
+    } = await window.toscanaSupabase.rpc(
+      "crear_pedido",
+      {
+        p_tipo: orderType,
+        p_mesa_id: tableId,
+        p_cliente_nombre:
+          getInputValue(
+            "#customer-name"
+          ) || null,
+        p_cliente_telefono:
+          getInputValue(
+            "#customer-phone"
+          ) || null,
+        p_direccion_entrega:
+          address || null,
+        p_observaciones:
+          getInputValue(
+            "#order-notes"
+          ) || null,
+        p_items:
+          state.cart.map(
+            (item) => ({
+              producto_id:
+                item.producto_id,
+              cantidad:
+                item.cantidad,
+              observaciones:
+                item.observaciones ||
+                null
+            })
+          )
+      }
+    );
+
+    if (error) {
+      throw error;
+    }
+
+    localStorage.setItem(
+      "toscana_ultimo_token",
+      data.token_consulta
+    );
+
+    setText(
+      "#success-ticket",
+      data.ticket
+    );
+
+    setText(
+      "#success-status",
+      pretty(data.estado)
+    );
+
+    setText(
+      "#success-total",
+      money(data.total)
+    );
+
+    const successDialog =
+      document.querySelector(
+        "#success-dialog"
+      );
+
+    if (successDialog) {
+      successDialog.showModal();
+    }
+  } catch (error) {
+    console.error(
+      "Error al registrar el pedido:",
+      error
+    );
+
+    showMessage(
+      error?.message ||
+      "No se pudo registrar el pedido."
+    );
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent =
+      "Confirmar pedido";
+  }
 }
-function showMessage(text){const m=document.querySelector("#order-message");m.textContent=text;m.hidden=false}
-function saveCart(){localStorage.setItem("toscana_cart",JSON.stringify(state.cart))}
-function restoreCart(){try{state.cart=JSON.parse(localStorage.getItem("toscana_cart"))||[]}catch{state.cart=[]}}
-function money(v){return new Intl.NumberFormat("es-EC",{style:"currency",currency:"USD"}).format(Number(v||0))}
-function slug(s){return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-")}
-function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+
+/**
+ * Inicia un pedido nuevo.
+ */
+function startNewOrder() {
+  clearCart();
+  clearCustomerFields();
+
+  const successDialog =
+    document.querySelector(
+      "#success-dialog"
+    );
+
+  if (successDialog?.open) {
+    successDialog.close();
+  }
+
+  applyQRTable();
+  toggleOrderFields();
+}
+
+/**
+ * Vacía el carrito.
+ */
+function clearCart() {
+  state.cart = [];
+  saveCart();
+  renderCart();
+}
+
+/**
+ * Limpia datos del cliente sin cambiar la mesa QR.
+ */
+function clearCustomerFields() {
+  const selectors = [
+    "#customer-name",
+    "#customer-phone",
+    "#delivery-address",
+    "#order-notes"
+  ];
+
+  selectors.forEach((selector) => {
+    const element =
+      document.querySelector(selector);
+
+    if (element) {
+      element.value = "";
+    }
+  });
+}
+
+/**
+ * Guarda el carrito en el navegador.
+ */
+function saveCart() {
+  localStorage.setItem(
+    "toscana_cart",
+    JSON.stringify(state.cart)
+  );
+}
+
+/**
+ * Recupera el carrito guardado.
+ */
+function restoreCart() {
+  try {
+    const storedCart =
+      JSON.parse(
+        localStorage.getItem(
+          "toscana_cart"
+        )
+      );
+
+    state.cart =
+      Array.isArray(storedCart)
+        ? storedCart
+        : [];
+  } catch {
+    state.cart = [];
+  }
+}
+
+/**
+ * Obtiene el valor limpio de un campo.
+ *
+ * @param {string} selector
+ * @returns {string}
+ */
+function getInputValue(selector) {
+  const element =
+    document.querySelector(selector);
+
+  return String(
+    element?.value || ""
+  ).trim();
+}
+
+/**
+ * Muestra un mensaje del pedido.
+ *
+ * @param {string} text
+ */
+function showMessage(text) {
+  const message =
+    document.querySelector(
+      "#order-message"
+    );
+
+  if (!message) {
+    return;
+  }
+
+  message.textContent = text;
+  message.hidden = false;
+}
+
+/**
+ * Limpia el mensaje del pedido.
+ */
+function clearMessage() {
+  const message =
+    document.querySelector(
+      "#order-message"
+    );
+
+  if (!message) {
+    return;
+  }
+
+  message.textContent = "";
+  message.hidden = true;
+}
+
+/**
+ * Asigna texto a un elemento.
+ *
+ * @param {string} selector
+ * @param {unknown} value
+ */
+function setText(selector, value) {
+  const element =
+    document.querySelector(selector);
+
+  if (element) {
+    element.textContent =
+      String(value ?? "");
+  }
+}
+
+/**
+ * Formatea valores monetarios.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function money(value) {
+  return new Intl.NumberFormat(
+    "es-EC",
+    {
+      style: "currency",
+      currency: "USD"
+    }
+  ).format(Number(value || 0));
+}
+
+/**
+ * Convierte un estado técnico a texto.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function pretty(value) {
+  return String(value || "")
+    .replaceAll("_", " ")
+    .replace(
+      /\b\w/g,
+      (character) =>
+        character.toUpperCase()
+    );
+}
+
+/**
+ * Genera un slug.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function slug(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(
+      /[\u0300-\u036f]/g,
+      ""
+    )
+    .replace(
+      /[^a-z0-9]+/g,
+      "-"
+    )
+    .replace(
+      /^-|-$|/g,
+      ""
+    );
+}
+
+/**
+ * Escapa texto para insertarlo en HTML.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function escapeHTML(value) {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (character) => {
+      const entities = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      };
+
+      return entities[character];
+    }
+  );
+}
