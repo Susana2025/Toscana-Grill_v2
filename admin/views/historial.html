@@ -1,0 +1,196 @@
+<section id="view-historial" class="panel-view active">
+  <div class="view-header">
+    <div>
+      <h2>Histórico de pedidos</h2>
+
+      <p>
+        Consulta pedidos cerrados o cancelados por fecha, estado,
+        ticket, cliente o mesa.
+      </p>
+    </div>
+
+    <button
+      id="refresh-history"
+      class="secondary-button"
+      type="button"
+    >
+      Actualizar
+    </button>
+  </div>
+
+  <div class="content-card">
+    <div class="history-filters">
+      <div class="history-filter-field">
+        <label for="history-date-from">
+          Desde
+        </label>
+
+        <input
+          id="history-date-from"
+          type="date"
+        >
+      </div>
+
+      <div class="history-filter-field">
+        <label for="history-date-to">
+          Hasta
+        </label>
+
+        <input
+          id="history-date-to"
+          type="date"
+        >
+      </div>
+
+      <div class="history-filter-field">
+        <label for="history-status">
+          Estado
+        </label>
+
+        <select id="history-status">
+          <option value="">
+            Todos
+          </option>
+
+          <option value="cerrado">
+            Cerrados
+          </option>
+
+          <option value="cancelado">
+            Cancelados
+          </option>
+        </select>
+      </div>
+
+      <div class="history-filter-field history-search-field">
+        <label for="history-search">
+          Buscar
+        </label>
+
+        <input
+          id="history-search"
+          type="search"
+          placeholder="Ticket, cliente, teléfono o mesa"
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="history-filter-actions">
+        <button
+          id="apply-history-filters"
+          class="secondary-button"
+          type="button"
+        >
+          Aplicar filtros
+        </button>
+
+        <button
+          id="clear-history-filters"
+          class="secondary-button"
+          type="button"
+        >
+          Limpiar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="history-summary">
+    <article class="metric-card">
+      <span>Pedidos encontrados</span>
+
+      <strong id="history-orders-count">
+        0
+      </strong>
+
+      <small>
+        Según los filtros aplicados
+      </small>
+    </article>
+
+    <article class="metric-card">
+      <span>Total cerrado</span>
+
+      <strong id="history-closed-total">
+        $0,00
+      </strong>
+
+      <small>
+        Suma de pedidos cerrados
+      </small>
+    </article>
+
+    <article class="metric-card">
+      <span>Cancelados</span>
+
+      <strong id="history-cancelled-count">
+        0
+      </strong>
+
+      <small>
+        Pedidos cancelados encontrados
+      </small>
+    </article>
+  </div>
+
+  <div class="content-card">
+    <div class="card-header">
+      <div>
+        <h2>Pedidos finalizados</h2>
+
+        <p>
+          Selecciona un pedido para consultar su detalle.
+        </p>
+      </div>
+
+      <span
+        id="history-results-badge"
+        class="counter-badge"
+      >
+        0
+      </span>
+    </div>
+
+    <div
+      id="history-loading"
+      class="section-loading"
+      hidden
+    >
+      Cargando histórico…
+    </div>
+
+    <div
+      id="history-empty"
+      class="empty-state"
+      hidden
+    >
+      <strong>
+        No se encontraron pedidos.
+      </strong>
+
+      <p>
+        Ajusta las fechas o filtros de búsqueda.
+      </p>
+    </div>
+
+    <div class="history-table-wrapper">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Ticket</th>
+            <th>Fecha</th>
+            <th>Ubicación</th>
+            <th>Cliente</th>
+            <th>Estado</th>
+            <th>Productos</th>
+            <th>Total</th>
+            <th>Creado por</th>
+            <th></th>
+          </tr>
+        </thead>
+
+        <tbody id="history-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
