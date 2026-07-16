@@ -1,10 +1,10 @@
 -- Toscana Grill POS
 -- Migración 001: actualización controlada del estado de pedidos.
 --
--- Flujo operativo simplificado:
+-- Flujo simplificado:
 -- pendiente -> confirmado -> en_preparacion -> listo -> entregado -> cerrado
 --
--- Vía rápida para un restaurante con poco personal:
+-- Vía rápida:
 -- pendiente -> en_preparacion
 --
 -- Cancelación:
@@ -13,10 +13,8 @@
 begin;
 
 -- ============================================================
--- 1. ACTUALIZAR EL TRIGGER DEL HISTORIAL
+-- REGISTRO AUTOMÁTICO DEL HISTORIAL DE ESTADOS
 -- ============================================================
--- Se conserva el registro automático de cambios, pero ahora
--- también se almacena la observación enviada por la RPC.
 
 create or replace function public.registrar_historial_estado()
 returns trigger
@@ -79,7 +77,7 @@ end;
 $$;
 
 -- ============================================================
--- 2. FUNCIÓN PRINCIPAL PARA CAMBIAR EL ESTADO
+-- FUNCIÓN PRINCIPAL PARA CAMBIAR EL ESTADO DE UN PEDIDO
 -- ============================================================
 
 create or replace function public.actualizar_estado_pedido(
@@ -96,14 +94,11 @@ declare
   v_usuario_id uuid;
   v_rol public.rol_usuario;
   v_estado_actual public.estado_pedido;
-  v_creado_por uuid;
   v_ticket text;
   v_estado_valido boolean := false;
   v_observacion text;
 begin
-  -- ----------------------------------------------------------
-  -- Validar usuario autenticado y activo
-  -- ----------------------------------------------------------
+  -- Validar usuario autenticado y activo.
 
   select
     perfil.id,
@@ -116,32 +111,28 @@ begin
     and perfil.activo = true;
 
   if v_usuario_id is null then
-    raise exception 'Usuario no autenticado o inactivo.';
+    raise exception
+      'Usuario no autenticado o inactivo.';
   end if;
 
-  -- ----------------------------------------------------------
-  -- Bloquear el pedido durante la operación
-  -- ----------------------------------------------------------
+  -- Bloquear el pedido durante la operación.
 
   select
     pedido.estado,
-    pedido.creado_por,
     pedido.ticket
   into
     v_estado_actual,
-    v_creado_por,
     v_ticket
   from public.pedidos pedido
   where pedido.id = p_pedido_id
   for update;
 
   if not found then
-    raise exception 'Pedido no encontrado.';
+    raise exception
+      'Pedido no encontrado.';
   end if;
 
-  -- ----------------------------------------------------------
-  -- Evitar actualizaciones innecesarias
-  -- ----------------------------------------------------------
+  -- Evitar una actualización innecesaria.
 
   if v_estado_actual = p_estado_nuevo then
     return jsonb_build_object(
@@ -160,18 +151,17 @@ begin
     );
   end if;
 
-  -- ----------------------------------------------------------
-  -- Estados finales: no pueden reabrirse
-  -- ----------------------------------------------------------
+  -- Los pedidos finalizados no pueden reabrirse.
 
-  if v_estado_actual in ('cerrado', 'cancelado') then
+  if v_estado_actual in (
+    'cerrado',
+    'cancelado'
+  ) then
     raise exception
       'El pedido está finalizado y no puede cambiar de estado.';
   end if;
 
-  -- ----------------------------------------------------------
-  -- Validar transición operativa
-  -- ----------------------------------------------------------
+  -- Validar la transición.
 
   v_estado_valido :=
     case v_estado_actual
@@ -212,15 +202,11 @@ begin
       p_estado_nuevo;
   end if;
 
-  -- ----------------------------------------------------------
-  -- Permisos simples según rol
-  -- ----------------------------------------------------------
+  -- Permisos simplificados por rol.
 
   case v_rol
 
     when 'administrador' then
-      -- El administrador puede ejecutar cualquier transición
-      -- válida del flujo.
       null;
 
     when 'cocina' then
@@ -306,9 +292,7 @@ begin
         'El rol del usuario no está autorizado.';
   end case;
 
-  -- ----------------------------------------------------------
-  -- Cancelación con motivo obligatorio
-  -- ----------------------------------------------------------
+  -- Normalizar observación.
 
   v_observacion :=
     nullif(
@@ -321,14 +305,15 @@ begin
       ''
     );
 
+  -- La cancelación requiere motivo.
+
   if p_estado_nuevo = 'cancelado'
      and v_observacion is null then
     raise exception
       'Debe ingresar el motivo de cancelación.';
   end if;
 
-  -- La observación queda disponible para el trigger
-  -- de historial únicamente durante esta transacción.
+  -- Enviar observación al trigger de historial.
 
   perform set_config(
     'app.observacion_estado_pedido',
@@ -336,9 +321,7 @@ begin
     true
   );
 
-  -- ----------------------------------------------------------
-  -- Actualizar pedido
-  -- ----------------------------------------------------------
+  -- Actualizar pedido.
 
   update public.pedidos
   set
@@ -352,14 +335,10 @@ begin
         )
         then now()
 
-        else cerrado_en
+        else null
       end
 
   where id = p_pedido_id;
-
-  -- ----------------------------------------------------------
-  -- Respuesta para el frontend
-  -- ----------------------------------------------------------
 
   return jsonb_build_object(
     'pedido_id',
@@ -383,19 +362,23 @@ end;
 $$;
 
 -- ============================================================
--- 3. PERMISOS DE EJECUCIÓN
+-- PERMISOS
 -- ============================================================
 
-revoke all on function public.actualizar_estado_pedido(
+revoke all
+on function public.actualizar_estado_pedido(
   uuid,
   public.estado_pedido,
   text
-) from public;
+)
+from public;
 
-grant execute on function public.actualizar_estado_pedido(
+grant execute
+on function public.actualizar_estado_pedido(
   uuid,
   public.estado_pedido,
   text
-) to authenticated;
+)
+to authenticated;
 
 commit;
