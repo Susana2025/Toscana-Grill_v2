@@ -2,105 +2,371 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Menú digital y pedidos de Toscana Grill">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+
+  <meta
+    name="description"
+    content="Menú digital y pedidos de Toscana Grill"
+  >
+
+  <meta
+    name="theme-color"
+    content="#090a0b"
+  >
+
   <title>Toscana Grill | Menú</title>
-  <link rel="stylesheet" href="css/styles.css?v=1">
+
+  <link
+    rel="stylesheet"
+    href="css/styles.css?v=4"
+  >
 </head>
+
 <body>
   <header class="hero">
-    <div class="hero-overlay">
-      <p class="eyebrow">Restaurante</p>
-      <h1>Toscana Grill</h1>
-      <p>Selecciona tus productos y registra tu pedido.</p>
-      <a class="staff-link" href="admin/login.html">Acceso del personal</a>
+    <div class="hero-shade"></div>
+
+    <div class="hero-content">
+      <p class="eyebrow">
+        Asados al barril
+      </p>
+
+      <h1>
+        Toscana Grill
+      </h1>
+
+      <p class="hero-description">
+        Selecciona tus productos y registra tu pedido.
+      </p>
+
+      <a
+        class="staff-link"
+        href="admin/login.html"
+      >
+        Acceso del personal
+      </a>
     </div>
   </header>
 
-  <main class="layout">
-    <section class="menu-area">
-      <div class="section-heading">
+  <main class="page-container">
+    <section class="menu-panel">
+      <header class="menu-header">
         <div>
-          <p class="eyebrow">Nuestro menú</p>
-          <h2>Elige tus productos</h2>
+          <p class="eyebrow">
+            Nuestro menú
+          </p>
+
+          <h2>
+            Elige tus productos
+          </h2>
+
+          <p class="menu-subtitle">
+            Selecciona una categoría para encontrar tus productos
+            rápidamente.
+          </p>
         </div>
-        <input id="search" class="search" type="search" placeholder="Buscar producto">
+
+        <div class="search-wrapper">
+          <span
+            class="search-icon"
+            aria-hidden="true"
+          >
+            ⌕
+          </span>
+
+          <input
+            id="search"
+            class="search-input"
+            type="search"
+            placeholder="Buscar producto..."
+            autocomplete="off"
+            aria-label="Buscar productos"
+          >
+        </div>
+      </header>
+
+      <div class="categories-wrapper">
+        <nav
+          id="category-nav"
+          class="category-nav"
+          aria-label="Categorías del menú"
+        ></nav>
       </div>
-      <div id="category-nav" class="category-nav"></div>
-      <div id="menu-container" class="menu-container">
-        <p class="loading">Cargando menú…</p>
+
+      <div class="results-header">
+        <strong id="menu-results-label">
+          Todos los productos
+        </strong>
+
+        <span>
+          Selecciona un producto para agregarlo
+        </span>
+      </div>
+
+      <div
+        id="menu-container"
+        class="menu-container"
+      >
+        <div class="loading-state">
+          <div class="loading-spinner"></div>
+
+          <p>
+            Cargando menú…
+          </p>
+        </div>
       </div>
     </section>
 
-    <aside class="cart">
-      <div class="cart-header">
+    <aside class="cart-panel">
+      <header class="cart-header">
         <div>
-          <p class="eyebrow">Pedido</p>
-          <h2>Tu selección</h2>
+          <p class="eyebrow">
+            Pedido
+          </p>
+
+          <h2>
+            Tu selección
+          </h2>
         </div>
-        <button id="clear-cart" class="text-button" type="button">Vaciar</button>
+
+        <div class="cart-header-actions">
+          <span
+            id="cart-count"
+            class="cart-count"
+            aria-label="Cantidad de productos"
+          >
+            0
+          </span>
+
+          <button
+            id="clear-cart"
+            class="clear-cart-button"
+            type="button"
+          >
+            Vaciar
+          </button>
+        </div>
+      </header>
+
+      <div
+        id="cart-items"
+        class="cart-items"
+      ></div>
+
+      <div
+        id="cart-empty"
+        class="cart-empty"
+      >
+        <div
+          class="cart-empty-icon"
+          aria-hidden="true"
+        >
+          🛒
+        </div>
+
+        <strong>
+          Tu pedido está vacío
+        </strong>
+
+        <p>
+          Agrega productos desde el menú.
+        </p>
       </div>
 
-      <div id="cart-items" class="cart-items"></div>
-      <p id="cart-empty" class="empty">Aún no agregas productos.</p>
+      <section class="order-information">
+        <h3>
+          Datos del pedido
+        </h3>
 
-      <div class="order-form">
-        <label>Tipo de pedido
+        <div class="form-field">
+          <label for="order-type">
+            Tipo de pedido
+          </label>
+
           <select id="order-type">
-            <option value="mesa">Consumo en mesa</option>
-            <option value="para_llevar">Para llevar</option>
-            <option value="delivery">Delivery</option>
+            <option value="mesa">
+              Consumo en mesa
+            </option>
+
+            <option value="para_llevar">
+              Para llevar
+            </option>
+
+            <option value="delivery">
+              Delivery
+            </option>
           </select>
-        </label>
+        </div>
 
-        <label id="table-field">Mesa
-          <select id="table-select"></select>
-        </label>
+        <div
+          id="table-field"
+          class="form-field"
+        >
+          <label for="table-select">
+            Mesa
+          </label>
 
-        <label>Nombre del cliente
-          <input id="customer-name" maxlength="100" placeholder="Opcional">
-        </label>
+          <select id="table-select">
+            <option value="">
+              Cargando mesas…
+            </option>
+          </select>
+        </div>
 
-        <label>Teléfono
-          <input id="customer-phone" maxlength="20" inputmode="tel" placeholder="Opcional">
-        </label>
+        <div class="form-field">
+          <label for="customer-name">
+            Nombre del cliente
+          </label>
 
-        <label id="address-field" hidden>Dirección
-          <textarea id="delivery-address" rows="2"></textarea>
-        </label>
+          <input
+            id="customer-name"
+            type="text"
+            maxlength="100"
+            placeholder="Opcional"
+            autocomplete="name"
+          >
+        </div>
 
-        <label>Observaciones generales
-          <textarea id="order-notes" rows="2"></textarea>
-        </label>
+        <div class="form-field">
+          <label for="customer-phone">
+            Teléfono
+          </label>
+
+          <input
+            id="customer-phone"
+            type="tel"
+            maxlength="20"
+            inputmode="tel"
+            placeholder="Opcional"
+            autocomplete="tel"
+          >
+        </div>
+
+        <div
+          id="address-field"
+          class="form-field"
+          hidden
+        >
+          <label for="delivery-address">
+            Dirección de entrega
+          </label>
+
+          <textarea
+            id="delivery-address"
+            rows="3"
+            placeholder="Ingresa la dirección"
+          ></textarea>
+        </div>
+
+        <div class="form-field">
+          <label for="order-notes">
+            Observaciones generales
+          </label>
+
+          <textarea
+            id="order-notes"
+            rows="3"
+            maxlength="500"
+            placeholder="Ej.: sin cebolla, salsa aparte..."
+          ></textarea>
+        </div>
+      </section>
+
+      <div class="cart-total">
+        <span>
+          Total
+        </span>
+
+        <strong id="cart-total">
+          $0,00
+        </strong>
       </div>
 
-      <div class="total-row">
-        <span>Total</span>
-        <strong id="cart-total">$0,00</strong>
-      </div>
+      <p
+        id="order-message"
+        class="order-message"
+        hidden
+      ></p>
 
-      <p id="order-message" class="message" hidden></p>
-      <button id="submit-order" class="primary-button" type="button">Confirmar pedido</button>
+      <button
+        id="submit-order"
+        class="submit-order-button"
+        type="button"
+      >
+        Confirmar pedido
+      </button>
     </aside>
   </main>
 
-  <dialog id="success-dialog" class="success-dialog">
-    <h2>Pedido registrado</h2>
-    <p>Conserva tu ticket para seguimiento.</p>
-    <div class="ticket-box">
-      <span>Ticket</span>
-      <strong id="success-ticket"></strong>
-      <span>Estado</span>
-      <strong id="success-status"></strong>
-      <span>Total</span>
-      <strong id="success-total"></strong>
+  <dialog
+    id="success-dialog"
+    class="success-dialog"
+  >
+    <div class="success-icon">
+      ✓
     </div>
-    <button id="new-order" class="primary-button" type="button">Nuevo pedido</button>
+
+    <p class="eyebrow">
+      Pedido registrado
+    </p>
+
+    <h2>
+      ¡Gracias por tu pedido!
+    </h2>
+
+    <p class="success-description">
+      Conserva tu ticket para consultar el estado.
+    </p>
+
+    <div class="ticket-summary">
+      <div>
+        <span>
+          Ticket
+        </span>
+
+        <strong id="success-ticket">
+          —
+        </strong>
+      </div>
+
+      <div>
+        <span>
+          Estado
+        </span>
+
+        <strong id="success-status">
+          —
+        </strong>
+      </div>
+
+      <div>
+        <span>
+          Total
+        </span>
+
+        <strong id="success-total">
+          $0,00
+        </strong>
+      </div>
+    </div>
+
+    <button
+      id="new-order"
+      class="submit-order-button"
+      type="button"
+    >
+      Realizar nuevo pedido
+    </button>
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <script src="js/supabase-config.js?v=1"></script>
   <script src="js/supabase-client.js?v=1"></script>
-  <script src="js/app.js?v=3"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>
