@@ -1,24 +1,99 @@
 "use strict";
 
+/**
+ * Coordinador principal del panel administrativo.
+ *
+ * Responsabilidades:
+ * - Validar la sesión.
+ * - Obtener el perfil del usuario.
+ * - Aplicar permisos por rol.
+ * - Controlar la navegación.
+ * - Cargar los módulos independientes.
+ * - Gestionar el modal de detalle de pedidos.
+ * - Cerrar sesión.
+ *
+ * La lógica propia de Dashboard, Pedidos y Cocina
+ * se encuentra en sus respectivos archivos.
+ */
+
 const panelState = {
   session: null,
   profile: null,
-  orders: [],
-  currentView: null,
-  activeOrderFilter: "todos"
+  currentView: null
 };
 
-const VIEW_NAMES = {
-  dashboard: "Dashboard",
-  pedidos: "Pedidos activos",
-  cocina: "Panel de cocina",
-  caja: "Gestión de caja",
-  historial: "Histórico de pedidos",
-  productos: "Productos",
-  usuarios: "Usuarios"
+const VIEW_CONFIG = {
+  dashboard: {
+    title: "Dashboard",
+    roles: [
+      "administrador",
+      "caja",
+      "cocina",
+      "mesero"
+    ],
+    moduleName: "toscanaDashboardModule"
+  },
+
+  pedidos: {
+    title: "Pedidos activos",
+    roles: [
+      "administrador",
+      "caja",
+      "cocina",
+      "mesero"
+    ],
+    moduleName: "toscanaOrdersModule"
+  },
+
+  cocina: {
+    title: "Panel de cocina",
+    roles: [
+      "administrador",
+      "cocina"
+    ],
+    moduleName: "toscanaKitchenModule"
+  },
+
+  caja: {
+    title: "Gestión de caja",
+    roles: [
+      "administrador",
+      "caja"
+    ],
+    moduleName: null
+  },
+
+  historial: {
+    title: "Histórico de pedidos",
+    roles: [
+      "administrador",
+      "caja",
+      "mesero"
+    ],
+    moduleName: null
+  },
+
+  productos: {
+    title: "Productos",
+    roles: [
+      "administrador"
+    ],
+    moduleName: null
+  },
+
+  usuarios: {
+    title: "Usuarios",
+    roles: [
+      "administrador"
+    ],
+    moduleName: null
+  }
 };
 
-document.addEventListener("DOMContentLoaded", initializePanel);
+document.addEventListener(
+  "DOMContentLoaded",
+  initializePanel
+);
 
 /**
  * Inicializa el panel administrativo.
@@ -26,62 +101,47 @@ document.addEventListener("DOMContentLoaded", initializePanel);
  * @returns {Promise<void>}
  */
 async function initializePanel() {
-  if (!window.toscanaSupabase) {
-    fatal("No se configuró correctamente la conexión con Supabase.");
-    return;
-  }
-
-  if (!window.toscanaViewLoader) {
-    fatal("No se cargó el administrador de vistas.");
-    return;
-  }
-
   try {
-    const {
-      data: sessionData,
-      error: sessionError
-    } = await window.toscanaSupabase.auth.getSession();
+    validateGlobalDependencies();
 
-    if (sessionError) {
-      throw sessionError;
-    }
+    const session = await getCurrentSession();
 
-    if (!sessionData.session?.user) {
+    if (!session?.user) {
       redirectToLogin();
       return;
     }
 
-    panelState.session = sessionData.session;
+    panelState.session = session;
+    panelState.profile = await getUserProfile(
+      session.user.id
+    );
 
-    const {
-      data: profile,
-      error: profileError
-    } = await window.toscanaSupabase
-      .from("perfiles")
-      .select("id,nombre_completo,rol,activo")
-      .eq("id", sessionData.session.user.id)
-      .single();
-
-    if (profileError || !profile || !profile.activo) {
+    if (!panelState.profile?.activo) {
       await window.toscanaSupabase.auth.signOut();
       redirectToLogin();
       return;
     }
 
-    panelState.profile = profile;
-
-    setupStaticUI();
-    setupStaticEvents();
+    setupUserInterface();
+    setupGlobalEvents();
     applyRolePermissions();
 
     await navigateToView("dashboard");
 
-    document.querySelector("#app-loading").hidden = true;
-    document.querySelector("#admin-app").hidden = false;
-  } catch (error) {
-    console.error("Error al inicializar el panel:", error);
+    document.querySelector(
+      "#app-loading"
+    ).hidden = true;
 
-    fatal(
+    document.querySelector(
+      "#admin-app"
+    ).hidden = false;
+  } catch (error) {
+    console.error(
+      "Error al inicializar el panel:",
+      error
+    );
+
+    renderFatalError(
       error?.message ||
       "No fue posible cargar el panel administrativo."
     );
@@ -89,9 +149,94 @@ async function initializePanel() {
 }
 
 /**
- * Configura la información permanente del usuario.
+ * Verifica que las dependencias globales estén disponibles.
  */
-function setupStaticUI() {
+function validateGlobalDependencies() {
+  const requiredDependencies = [
+    {
+      object: window.toscanaSupabase,
+      message:
+        "No se configuró correctamente la conexión con Supabase."
+    },
+    {
+      object: window.toscanaViewLoader,
+      message:
+        "No se cargó el administrador de vistas."
+    },
+    {
+      object: window.toscanaUtils,
+      message:
+        "No se cargaron las utilidades compartidas."
+    }
+  ];
+
+  const missingDependency =
+    requiredDependencies.find(
+      (dependency) => !dependency.object
+    );
+
+  if (missingDependency) {
+    throw new Error(
+      missingDependency.message
+    );
+  }
+}
+
+/**
+ * Obtiene la sesión activa.
+ *
+ * @returns {Promise<object|null>}
+ */
+async function getCurrentSession() {
+  const {
+    data,
+    error
+  } = await window.toscanaSupabase.auth.getSession();
+
+  if (error) {
+    throw error;
+  }
+
+  return data.session || null;
+}
+
+/**
+ * Obtiene el perfil del usuario autenticado.
+ *
+ * @param {string} userId
+ * @returns {Promise<object>}
+ */
+async function getUserProfile(userId) {
+  const {
+    data,
+    error
+  } = await window.toscanaSupabase
+    .from("perfiles")
+    .select(
+      "id,nombre_completo,rol,activo"
+    )
+    .eq("id", userId)
+    .single();
+
+  if (error) {
+    throw new Error(
+      "No fue posible consultar el perfil del usuario."
+    );
+  }
+
+  if (!data) {
+    throw new Error(
+      "El usuario no tiene un perfil registrado."
+    );
+  }
+
+  return data;
+}
+
+/**
+ * Presenta la información del usuario autenticado.
+ */
+function setupUserInterface() {
   const profile = panelState.profile;
 
   const displayName =
@@ -99,20 +244,30 @@ function setupStaticUI() {
     panelState.session?.user?.email ||
     "Usuario";
 
-  document.querySelector("#user-name").textContent =
-    displayName;
+  window.toscanaUtils.setText(
+    "#user-name",
+    displayName
+  );
 
-  document.querySelector("#user-role").textContent =
-    pretty(profile.rol);
+  window.toscanaUtils.setText(
+    "#user-role",
+    window.toscanaUtils.pretty(
+      profile.rol
+    )
+  );
 
-  document.querySelector("#user-avatar").textContent =
-    getInitials(displayName);
+  window.toscanaUtils.setText(
+    "#user-avatar",
+    window.toscanaUtils.getInitials(
+      displayName
+    )
+  );
 }
 
 /**
  * Configura los eventos permanentes del panel.
  */
-function setupStaticEvents() {
+function setupGlobalEvents() {
   const logoutButton =
     document.querySelector("#logout-button");
 
@@ -129,81 +284,129 @@ function setupStaticEvents() {
     document.querySelector("#order-dialog");
 
   const closeOrderDialog =
-    document.querySelector("#close-order-dialog");
+    document.querySelector(
+      "#close-order-dialog"
+    );
 
-  logoutButton.addEventListener("click", logout);
+  logoutButton.addEventListener(
+    "click",
+    logout
+  );
 
-  sidebarToggle.addEventListener("click", () => {
-    sidebar.classList.toggle("open");
-    overlay.classList.toggle("visible");
-  });
+  sidebarToggle.addEventListener(
+    "click",
+    () => {
+      sidebar.classList.toggle("open");
+      overlay.classList.toggle("visible");
+    }
+  );
 
-  overlay.addEventListener("click", closeSidebar);
+  overlay.addEventListener(
+    "click",
+    closeSidebar
+  );
 
   document
     .querySelectorAll(".nav-item")
     .forEach((button) => {
-      button.addEventListener("click", async () => {
-        const viewName = button.dataset.view;
+      button.addEventListener(
+        "click",
+        async () => {
+          const viewName =
+            button.dataset.view;
 
-        if (!viewName) {
-          return;
+          if (!viewName) {
+            return;
+          }
+
+          await navigateToView(viewName);
+          closeSidebar();
         }
-
-        await navigateToView(viewName);
-        closeSidebar();
-      });
+      );
     });
 
-  closeOrderDialog.addEventListener("click", () => {
-    if (orderDialog.open) {
-      orderDialog.close();
+  closeOrderDialog.addEventListener(
+    "click",
+    () => {
+      if (orderDialog.open) {
+        orderDialog.close();
+      }
     }
-  });
+  );
 
-  orderDialog.addEventListener("click", (event) => {
-    if (event.target === orderDialog) {
-      orderDialog.close();
+  orderDialog.addEventListener(
+    "click",
+    (event) => {
+      if (event.target === orderDialog) {
+        orderDialog.close();
+      }
     }
-  });
+  );
 
-  window.addEventListener("resize", () => {
-    if (window.innerWidth > 900) {
-      closeSidebar();
+  window.addEventListener(
+    "resize",
+    () => {
+      if (window.innerWidth > 900) {
+        closeSidebar();
+      }
     }
-  });
+  );
 }
 
 /**
- * Oculta módulos que no corresponden al rol actual.
+ * Oculta las opciones de navegación no autorizadas.
  */
 function applyRolePermissions() {
-  const currentRole = panelState.profile.rol;
+  const currentRole =
+    panelState.profile.rol;
 
   document
-    .querySelectorAll("[data-roles]")
-    .forEach((element) => {
-      const allowedRoles = element.dataset.roles
-        .split(",")
-        .map((role) => role.trim())
-        .filter(Boolean);
+    .querySelectorAll(".nav-item")
+    .forEach((button) => {
+      const viewName =
+        button.dataset.view;
 
-      element.hidden =
-        !allowedRoles.includes(currentRole);
+      const config =
+        VIEW_CONFIG[viewName];
+
+      if (!config) {
+        button.hidden = true;
+        return;
+      }
+
+      button.hidden =
+        !config.roles.includes(
+          currentRole
+        );
     });
 }
 
 /**
- * Navega entre las vistas del panel.
+ * Navega hacia una vista del panel.
  *
  * @param {string} viewName
  * @returns {Promise<void>}
  */
 async function navigateToView(viewName) {
-  clearMessage();
+  clearGlobalMessage();
 
-  if (!isViewAllowed(viewName)) {
-    showMessage(
+  const config =
+    VIEW_CONFIG[viewName];
+
+  if (!config) {
+    showGlobalMessage(
+      "El módulo solicitado no existe."
+    );
+
+    return;
+  }
+
+  if (
+    !config.roles.includes(
+      panelState.profile.rol
+    )
+  ) {
+    showGlobalMessage(
       "Tu usuario no tiene autorización para acceder a este módulo."
     );
 
@@ -211,54 +414,84 @@ async function navigateToView(viewName) {
   }
 
   setActiveNavigationItem(viewName);
-  setPageTitle(viewName);
+  setPageTitle(config.title);
 
-  switch (viewName) {
-    case "dashboard":
-      await loadDashboardView();
-      break;
+  destroyCurrentModule();
 
-    case "pedidos":
-      await loadOrdersView();
-      break;
+  panelState.currentView = viewName;
 
-    default:
-      renderPendingModule(viewName);
-      break;
+  if (!config.moduleName) {
+    renderPendingModule(config.title);
+    return;
+  }
+
+  const module =
+    window[config.moduleName];
+
+  if (!module) {
+    showGlobalMessage(
+      `No se cargó correctamente el módulo ${config.title}.`
+    );
+
+    renderPendingModule(config.title);
+    return;
+  }
+
+  renderViewLoading();
+
+  try {
+    await module.initialize({
+      role: panelState.profile.rol,
+      profile: panelState.profile,
+      session: panelState.session,
+      showMessage: showGlobalMessage,
+      clearMessage: clearGlobalMessage,
+      openOrder
+    });
+  } catch (error) {
+    console.error(
+      `Error al cargar ${config.title}:`,
+      error
+    );
+
+    showGlobalMessage(
+      error?.message ||
+      `No fue posible cargar ${config.title}.`
+    );
+
+    renderModuleError(
+      config.title,
+      error?.message
+    );
   }
 }
 
 /**
- * Comprueba si la vista está autorizada para el rol actual.
- *
- * @param {string} viewName
- * @returns {boolean}
+ * Destruye el módulo actualmente cargado.
  */
-function isViewAllowed(viewName) {
-  const button = document.querySelector(
-    `.nav-item[data-view="${escapeSelector(viewName)}"]`
-  );
+function destroyCurrentModule() {
+  const currentConfig =
+    VIEW_CONFIG[
+      panelState.currentView
+    ];
 
-  if (!button || button.hidden) {
-    return false;
+  if (!currentConfig?.moduleName) {
+    return;
   }
 
-  if (!button.dataset.roles) {
-    return true;
+  const currentModule =
+    window[currentConfig.moduleName];
+
+  if (
+    currentModule &&
+    typeof currentModule.destroy === "function"
+  ) {
+    currentModule.destroy();
   }
-
-  const allowedRoles = button.dataset.roles
-    .split(",")
-    .map((role) => role.trim())
-    .filter(Boolean);
-
-  return allowedRoles.includes(
-    panelState.profile.rol
-  );
 }
 
 /**
- * Marca el botón activo del menú lateral.
+ * Marca la opción activa del menú.
  *
  * @param {string} viewName
  */
@@ -276,681 +509,114 @@ function setActiveNavigationItem(viewName) {
 /**
  * Actualiza el título superior.
  *
- * @param {string} viewName
+ * @param {string} title
  */
-function setPageTitle(viewName) {
-  document.querySelector("#page-title").textContent =
-    VIEW_NAMES[viewName] || "Módulo";
-}
-
-/**
- * Carga la vista dinámica del Dashboard.
- *
- * @returns {Promise<void>}
- */
-async function loadDashboardView() {
-  panelState.currentView = "dashboard";
-
-  await window.toscanaViewLoader.load("dashboard");
-
-  const dashboard =
-    document.querySelector("#view-dashboard");
-
-  if (!dashboard) {
-    showMessage(
-      "La vista del Dashboard no se cargó correctamente."
-    );
-
-    return;
-  }
-
-  setupDashboardUI();
-  setupDashboardEvents();
-
-  await loadDashboard();
-}
-
-/**
- * Configura los datos iniciales del Dashboard.
- */
-function setupDashboardUI() {
-  const currentDate =
-    document.querySelector("#current-date");
-
-  if (!currentDate) {
-    return;
-  }
-
-  currentDate.textContent =
-    new Intl.DateTimeFormat("es-EC", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric"
-    }).format(new Date());
-}
-
-/**
- * Configura los eventos del Dashboard.
- */
-function setupDashboardEvents() {
-  const refreshButton =
-    document.querySelector("#refresh-dashboard");
-
-  if (refreshButton) {
-    refreshButton.addEventListener(
-      "click",
-      loadDashboard
-    );
-  }
-}
-
-/**
- * Carga indicadores y pedidos del Dashboard.
- *
- * @returns {Promise<void>}
- */
-async function loadDashboard() {
-  if (panelState.currentView !== "dashboard") {
-    return;
-  }
-
-  clearMessage();
-
-  const refreshButton =
-    document.querySelector("#refresh-dashboard");
-
-  setButtonLoading(
-    refreshButton,
-    true,
-    "Actualizando…"
-  );
-
-  try {
-    if (
-      ["administrador", "caja"].includes(
-        panelState.profile.rol
-      )
-    ) {
-      await Promise.all([
-        loadSummary(),
-        loadDashboardOrders()
-      ]);
-    } else {
-      resetRestrictedSummary();
-      await loadDashboardOrders();
-    }
-  } finally {
-    setButtonLoading(
-      refreshButton,
-      false,
-      "Actualizar"
-    );
-  }
-}
-
-/**
- * Carga el resumen diario.
- *
- * @returns {Promise<void>}
- */
-async function loadSummary() {
-  const {
-    data,
-    error
-  } = await window.toscanaSupabase.rpc(
-    "resumen_diario",
-    {
-      p_fecha: null
-    }
-  );
-
-  if (error) {
-    console.error(
-      "Error al cargar el resumen diario:",
-      error
-    );
-
-    showMessage(
-      "No fue posible cargar los indicadores."
-    );
-
-    return;
-  }
-
-  setText(
-    "#metric-active-orders",
-    data?.pedidos_activos ?? 0
-  );
-
-  setText(
-    "#metric-total-orders",
-    data?.total_pedidos ?? 0
-  );
-
-  setText(
-    "#metric-sales",
-    money(data?.ventas_generadas)
-  );
-
-  setText(
-    "#metric-paid",
-    money(data?.total_pagado)
+function setPageTitle(title) {
+  window.toscanaUtils.setText(
+    "#page-title",
+    title
   );
 }
 
 /**
- * Evita errores de autorización en cocina o mesero.
+ * Muestra una pantalla de carga de módulo.
  */
-function resetRestrictedSummary() {
-  setText("#metric-active-orders", "—");
-  setText("#metric-total-orders", "—");
-  setText("#metric-sales", "Restringido");
-  setText("#metric-paid", "Restringido");
-}
-
-/**
- * Carga los pedidos activos del Dashboard.
- *
- * @returns {Promise<void>}
- */
-async function loadDashboardOrders() {
-  const loading =
-    document.querySelector("#orders-loading");
-
-  const empty =
-    document.querySelector("#orders-empty");
-
-  const list =
-    document.querySelector("#orders-list");
-
-  const count =
-    document.querySelector("#orders-count");
-
-  if (!loading || !empty || !list || !count) {
-    showMessage(
-      "La estructura del Dashboard está incompleta."
-    );
-
-    return;
-  }
-
-  setOrdersLoadingState({
-    loading,
-    empty,
-    list,
-    count
-  });
-
-  const orders = await fetchActiveOrders();
-
-  loading.hidden = true;
-
-  if (orders === null) {
-    return;
-  }
-
-  count.textContent = String(orders.length);
-
-  if (orders.length === 0) {
-    empty.hidden = false;
-    return;
-  }
-
-  list.innerHTML = orders
-    .map(createOrderCard)
-    .join("");
-
-  attachOrderCardEvents(list);
-}
-
-/**
- * Carga la vista dinámica de Pedidos activos.
- *
- * @returns {Promise<void>}
- */
-async function loadOrdersView() {
-  panelState.currentView = "pedidos";
-  panelState.activeOrderFilter = "todos";
-
-  await window.toscanaViewLoader.load("pedidos");
-
-  const ordersView =
-    document.querySelector("#view-pedidos");
-
-  if (!ordersView) {
-    showMessage(
-      "La vista de Pedidos activos no se cargó correctamente."
-    );
-
-    return;
-  }
-
-  setupOrdersViewEvents();
-
-  await loadActiveOrdersModule();
-}
-
-/**
- * Configura los eventos de la vista Pedidos.
- */
-function setupOrdersViewEvents() {
-  const refreshButton =
-    document.querySelector("#refresh-orders");
-
-  if (refreshButton) {
-    refreshButton.addEventListener(
-      "click",
-      loadActiveOrdersModule
-    );
-  }
-
-  document
-    .querySelectorAll("[data-order-filter]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const filter =
-          button.dataset.orderFilter || "todos";
-
-        panelState.activeOrderFilter = filter;
-
-        document
-          .querySelectorAll("[data-order-filter]")
-          .forEach((filterButton) => {
-            filterButton.classList.toggle(
-              "active",
-              filterButton === button
-            );
-          });
-
-        renderActiveOrders();
-      });
-    });
-}
-
-/**
- * Consulta y presenta los pedidos del módulo.
- *
- * @returns {Promise<void>}
- */
-async function loadActiveOrdersModule() {
-  if (panelState.currentView !== "pedidos") {
-    return;
-  }
-
-  clearMessage();
-
-  const refreshButton =
-    document.querySelector("#refresh-orders");
-
-  const loading =
+function renderViewLoading() {
+  const container =
     document.querySelector(
-      "#active-orders-loading"
+      "#view-container"
     );
 
-  const empty =
-    document.querySelector(
-      "#active-orders-empty"
-    );
-
-  const list =
-    document.querySelector(
-      "#active-orders-list"
-    );
-
-  const count =
-    document.querySelector(
-      "#active-orders-count"
-    );
-
-  if (
-    !loading ||
-    !empty ||
-    !list ||
-    !count
-  ) {
-    showMessage(
-      "La estructura del módulo de pedidos está incompleta."
-    );
-
-    return;
-  }
-
-  setButtonLoading(
-    refreshButton,
-    true,
-    "Actualizando…"
-  );
-
-  setOrdersLoadingState({
-    loading,
-    empty,
-    list,
-    count
-  });
-
-  try {
-    const orders = await fetchActiveOrders();
-
-    loading.hidden = true;
-
-    if (orders === null) {
-      return;
-    }
-
-    renderActiveOrders();
-  } finally {
-    setButtonLoading(
-      refreshButton,
-      false,
-      "Actualizar"
-    );
-  }
-}
-
-/**
- * Filtra y renderiza los pedidos activos.
- */
-function renderActiveOrders() {
-  const empty =
-    document.querySelector(
-      "#active-orders-empty"
-    );
-
-  const list =
-    document.querySelector(
-      "#active-orders-list"
-    );
-
-  const count =
-    document.querySelector(
-      "#active-orders-count"
-    );
-
-  if (!empty || !list || !count) {
-    return;
-  }
-
-  const filteredOrders =
-    panelState.activeOrderFilter === "todos"
-      ? panelState.orders
-      : panelState.orders.filter(
-          (order) =>
-            order.estado ===
-            panelState.activeOrderFilter
-        );
-
-  count.textContent =
-    String(filteredOrders.length);
-
-  empty.hidden =
-    filteredOrders.length > 0;
-
-  if (filteredOrders.length === 0) {
-    list.innerHTML = "";
-    return;
-  }
-
-  list.innerHTML = filteredOrders
-    .map(createOrderCard)
-    .join("");
-
-  attachOrderCardEvents(list);
-}
-
-/**
- * Consulta los pedidos activos en Supabase.
- *
- * @returns {Promise<Array<object>|null>}
- */
-async function fetchActiveOrders() {
-  const {
-    data,
-    error
-  } = await window.toscanaSupabase.rpc(
-    "listar_pedidos_activos"
-  );
-
-  if (error) {
-    console.error(
-      "Error al cargar pedidos activos:",
-      error
-    );
-
-    showMessage(
-      "No fue posible cargar los pedidos activos."
-    );
-
-    return null;
-  }
-
-  panelState.orders =
-    Array.isArray(data)
-      ? data
-      : [];
-
-  return panelState.orders;
-}
-
-/**
- * Prepara el estado visual de carga de pedidos.
- *
- * @param {object} elements
- */
-function setOrdersLoadingState({
-  loading,
-  empty,
-  list,
-  count
-}) {
-  loading.hidden = false;
-  empty.hidden = true;
-  list.innerHTML = "";
-  count.textContent = "0";
-}
-
-/**
- * Genera la tarjeta HTML de un pedido.
- *
- * @param {object} order
- * @returns {string}
- */
-function createOrderCard(order) {
-  const orderId =
-    order.pedido_id || "";
-
-  const ticket =
-    order.ticket || "Sin ticket";
-
-  const location =
-    getOrderLocation(order);
-
-  const customer =
-    order.cliente_nombre
-      ? escapeHTML(order.cliente_nombre)
-      : "";
-
-  const elapsedTime =
-    getElapsedTime(order.creado_en);
-
-  return `
-    <article
-      class="order-card"
-      data-id="${escapeHTML(orderId)}"
-      tabindex="0"
-      role="button"
-      aria-label="Abrir pedido ${escapeHTML(ticket)}"
-    >
-      <div class="order-card-header">
-        <div>
-          <strong>${escapeHTML(ticket)}</strong>
-          <span>${escapeHTML(location)}</span>
-        </div>
-
-        <span
-          class="status-badge status-${escapeHTML(
-            order.estado
-          )}"
-        >
-          ${escapeHTML(pretty(order.estado))}
-        </span>
-      </div>
-
-      ${
-        customer
-          ? `
-            <p class="order-customer">
-              Cliente: ${customer}
-            </p>
-          `
-          : ""
-      }
-
-      <div class="order-card-body">
-        <div>
-          <span>Productos</span>
-          <strong>
-            ${Number(order.cantidad_items || 0)}
-          </strong>
-        </div>
-
-        <div>
-          <span>Total</span>
-          <strong>${money(order.total)}</strong>
-        </div>
-
-        <div>
-          <span>Tiempo</span>
-          <strong>${escapeHTML(elapsedTime)}</strong>
-        </div>
-      </div>
-    </article>
+  container.innerHTML = `
+    <div class="view-loading">
+      <div class="loader"></div>
+      <p>Cargando módulo…</p>
+    </div>
   `;
 }
 
 /**
- * Agrega eventos de apertura a las tarjetas.
+ * Muestra un módulo todavía no desarrollado.
  *
- * @param {HTMLElement} container
+ * @param {string} title
  */
-function attachOrderCardEvents(container) {
-  container
-    .querySelectorAll(".order-card")
-    .forEach((card) => {
-      const openCard = () => {
-        const orderId = card.dataset.id;
-
-        if (orderId) {
-          openOrder(orderId);
-        }
-      };
-
-      card.addEventListener(
-        "click",
-        openCard
-      );
-
-      card.addEventListener(
-        "keydown",
-        (event) => {
-          if (
-            event.key === "Enter" ||
-            event.key === " "
-          ) {
-            event.preventDefault();
-            openCard();
-          }
-        }
-      );
-    });
-}
-
-/**
- * Determina la ubicación de un pedido.
- *
- * @param {object} order
- * @returns {string}
- */
-function getOrderLocation(order) {
-  if (order.tipo === "mesa") {
-    if (order.mesa_nombre) {
-      return order.mesa_nombre;
-    }
-
-    if (order.mesa_numero) {
-      return `Mesa ${order.mesa_numero}`;
-    }
-
-    return "Mesa";
-  }
-
-  return pretty(order.tipo) || "Sin ubicación";
-}
-
-/**
- * Calcula el tiempo transcurrido desde la creación.
- *
- * @param {string} createdAt
- * @returns {string}
- */
-function getElapsedTime(createdAt) {
-  if (!createdAt) {
-    return "—";
-  }
-
-  const createdDate =
-    new Date(createdAt);
-
-  if (
-    Number.isNaN(createdDate.getTime())
-  ) {
-    return "—";
-  }
-
-  const difference =
-    Date.now() - createdDate.getTime();
-
-  const minutes =
-    Math.max(
-      0,
-      Math.floor(difference / 60000)
+function renderPendingModule(title) {
+  const container =
+    document.querySelector(
+      "#view-container"
     );
 
-  if (minutes < 1) {
-    return "Ahora";
-  }
+  container.innerHTML = `
+    <section class="panel-view active">
+      <div class="content-card placeholder-card">
+        <h2>
+          ${window.toscanaUtils.escapeHTML(
+            title
+          )}
+        </h2>
 
-  if (minutes < 60) {
-    return `${minutes} min`;
-  }
-
-  const hours =
-    Math.floor(minutes / 60);
-
-  const remainingMinutes =
-    minutes % 60;
-
-  if (remainingMinutes === 0) {
-    return `${hours} h`;
-  }
-
-  return `${hours} h ${remainingMinutes} min`;
+        <p>
+          Este módulo está preparado para su
+          implementación incremental.
+        </p>
+      </div>
+    </section>
+  `;
 }
 
 /**
- * Abre el modal de detalle.
+ * Muestra un error de carga dentro del módulo.
+ *
+ * @param {string} title
+ * @param {string} message
+ */
+function renderModuleError(title, message) {
+  const container =
+    document.querySelector(
+      "#view-container"
+    );
+
+  container.innerHTML = `
+    <section class="panel-view active">
+      <div class="content-card placeholder-card">
+        <h2>
+          No fue posible cargar
+          ${window.toscanaUtils.escapeHTML(
+            title
+          )}
+        </h2>
+
+        <p>
+          ${window.toscanaUtils.escapeHTML(
+            message ||
+            "Se produjo un error inesperado."
+          )}
+        </p>
+      </div>
+    </section>
+  `;
+}
+
+/**
+ * Abre el detalle completo de un pedido.
  *
  * @param {string} orderId
  * @returns {Promise<void>}
  */
 async function openOrder(orderId) {
   const dialog =
-    document.querySelector("#order-dialog");
+    document.querySelector(
+      "#order-dialog"
+    );
 
   const content =
     document.querySelector(
       "#order-detail-content"
     );
+
+  if (!orderId) {
+    return;
+  }
 
   content.innerHTML = `
     <div class="section-loading">
@@ -962,19 +628,26 @@ async function openOrder(orderId) {
     dialog.showModal();
   }
 
-  const {
-    data,
-    error
-  } = await window.toscanaSupabase.rpc(
-    "obtener_detalle_pedido",
-    {
-      p_pedido_id: orderId
-    }
-  );
+  try {
+    const {
+      data,
+      error
+    } = await window.toscanaSupabase.rpc(
+      "obtener_detalle_pedido",
+      {
+        p_pedido_id: orderId
+      }
+    );
 
-  if (error) {
+    if (error) {
+      throw error;
+    }
+
+    content.innerHTML =
+      createOrderDetailHTML(data);
+  } catch (error) {
     console.error(
-      "Error al cargar el pedido:",
+      "Error al cargar el detalle del pedido:",
       error
     );
 
@@ -984,66 +657,78 @@ async function openOrder(orderId) {
           No fue posible cargar el pedido.
         </strong>
 
-        <p>${escapeHTML(error.message)}</p>
+        <p>
+          ${window.toscanaUtils.escapeHTML(
+            error?.message ||
+            "Se produjo un error inesperado."
+          )}
+        </p>
       </div>
     `;
-
-    return;
   }
-
-  content.innerHTML =
-    createOrderDetail(data);
 }
 
 /**
- * Genera el detalle completo del pedido.
+ * Genera el HTML del detalle de un pedido.
  *
  * @param {object} order
  * @returns {string}
  */
-function createOrderDetail(order) {
+function createOrderDetailHTML(order = {}) {
+  const utils =
+    window.toscanaUtils;
+
   const details =
-    Array.isArray(order?.detalle)
-      ? order.detalle
-      : [];
+    utils.toArray(order.detalle);
 
   const detailRows =
     details.length > 0
       ? details
           .map((item) => {
+            const productName =
+              item.producto ||
+              item.nombre_producto ||
+              "Producto";
+
+            const itemObservation =
+              item.observaciones
+                ? `
+                  <small>
+                    ${utils.escapeHTML(
+                      item.observaciones
+                    )}
+                  </small>
+                `
+                : "";
+
             return `
               <tr>
                 <td>
                   <strong>
-                    ${escapeHTML(
-                      item.producto ||
-                      "Producto"
+                    ${utils.escapeHTML(
+                      productName
                     )}
                   </strong>
 
-                  ${
-                    item.observaciones
-                      ? `
-                        <small>
-                          ${escapeHTML(
-                            item.observaciones
-                          )}
-                        </small>
-                      `
-                      : ""
-                  }
+                  ${itemObservation}
                 </td>
 
                 <td>
-                  ${Number(item.cantidad || 0)}
+                  ${Number(
+                    item.cantidad || 0
+                  )}
                 </td>
 
                 <td>
-                  ${money(item.precio_unitario)}
+                  ${utils.money(
+                    item.precio_unitario
+                  )}
                 </td>
 
                 <td>
-                  ${money(item.subtotal)}
+                  ${utils.money(
+                    item.subtotal
+                  )}
                 </td>
               </tr>
             `;
@@ -1057,26 +742,76 @@ function createOrderDetail(order) {
           </tr>
         `;
 
+  const customerHTML =
+    order.cliente_nombre
+      ? `
+        <div>
+          <span>Cliente</span>
+
+          <strong>
+            ${utils.escapeHTML(
+              order.cliente_nombre
+            )}
+          </strong>
+        </div>
+      `
+      : "";
+
+  const customerPhoneHTML =
+    order.cliente_telefono
+      ? `
+        <div>
+          <span>Teléfono</span>
+
+          <strong>
+            ${utils.escapeHTML(
+              order.cliente_telefono
+            )}
+          </strong>
+        </div>
+      `
+      : "";
+
+  const observationHTML =
+    order.observaciones
+      ? `
+        <div class="order-observations">
+          <span>
+            Observaciones generales
+          </span>
+
+          <p>
+            ${utils.escapeHTML(
+              order.observaciones
+            )}
+          </p>
+        </div>
+      `
+      : "";
+
   return `
     <div class="order-detail">
       <div class="order-detail-header">
         <div>
           <p>Pedido</p>
+
           <h2>
-            ${escapeHTML(
-              order?.ticket ||
+            ${utils.escapeHTML(
+              order.ticket ||
               "Sin ticket"
             )}
           </h2>
         </div>
 
         <span
-          class="status-badge status-${escapeHTML(
-            order?.estado
+          class="status-badge status-${utils.escapeHTML(
+            order.estado
           )}"
         >
-          ${escapeHTML(
-            pretty(order?.estado)
+          ${utils.escapeHTML(
+            utils.pretty(
+              order.estado
+            )
           )}
         </span>
       </div>
@@ -1084,28 +819,40 @@ function createOrderDetail(order) {
       <div class="order-detail-summary">
         <div>
           <span>Ubicación</span>
+
           <strong>
-            ${escapeHTML(
-              getOrderDetailLocation(order)
+            ${utils.escapeHTML(
+              utils.getOrderLocation(
+                order
+              )
             )}
           </strong>
         </div>
 
         <div>
           <span>Total</span>
+
           <strong>
-            ${money(order?.total)}
+            ${utils.money(
+              order.total
+            )}
           </strong>
         </div>
 
         <div>
-          <span>Pago</span>
+          <span>Estado de pago</span>
+
           <strong>
-            ${escapeHTML(
-              pretty(order?.estado_pago)
+            ${utils.escapeHTML(
+              utils.pretty(
+                order.estado_pago
+              )
             )}
           </strong>
         </div>
+
+        ${customerHTML}
+        ${customerPhoneHTML}
       </div>
 
       <div class="order-detail-table-wrapper">
@@ -1125,74 +872,8 @@ function createOrderDetail(order) {
         </table>
       </div>
 
-      ${
-        order?.observaciones
-          ? `
-            <div class="order-observations">
-              <span>
-                Observaciones generales
-              </span>
-
-              <p>
-                ${escapeHTML(
-                  order.observaciones
-                )}
-              </p>
-            </div>
-          `
-          : ""
-      }
+      ${observationHTML}
     </div>
-  `;
-}
-
-/**
- * Determina la ubicación desde el detalle RPC.
- *
- * @param {object} order
- * @returns {string}
- */
-function getOrderDetailLocation(order) {
-  if (order?.tipo === "mesa") {
-    if (order?.mesa?.nombre) {
-      return order.mesa.nombre;
-    }
-
-    if (order?.mesa?.numero) {
-      return `Mesa ${order.mesa.numero}`;
-    }
-
-    return "Mesa";
-  }
-
-  return pretty(order?.tipo) || "Sin ubicación";
-}
-
-/**
- * Muestra temporalmente un módulo pendiente.
- *
- * @param {string} viewName
- */
-function renderPendingModule(viewName) {
-  panelState.currentView = viewName;
-
-  const container =
-    document.querySelector("#view-container");
-
-  const moduleName =
-    VIEW_NAMES[viewName] || "Módulo";
-
-  container.innerHTML = `
-    <section class="panel-view active">
-      <div class="content-card placeholder-card">
-        <h2>${escapeHTML(moduleName)}</h2>
-
-        <p>
-          Este módulo está preparado para su
-          implementación incremental.
-        </p>
-      </div>
-    </section>
   `;
 }
 
@@ -1205,21 +886,25 @@ function closeSidebar() {
     .classList.remove("open");
 
   document
-    .querySelector("#sidebar-overlay")
+    .querySelector(
+      "#sidebar-overlay"
+    )
     .classList.remove("visible");
 }
 
 /**
- * Cierra la sesión.
+ * Cierra la sesión del usuario.
  *
  * @returns {Promise<void>}
  */
 async function logout() {
-  const button =
-    document.querySelector("#logout-button");
+  const logoutButton =
+    document.querySelector(
+      "#logout-button"
+    );
 
-  setButtonLoading(
-    button,
+  window.toscanaUtils.setButtonLoading(
+    logoutButton,
     true,
     "Cerrando sesión…"
   );
@@ -1237,31 +922,12 @@ async function logout() {
 }
 
 /**
- * Redirige al inicio de sesión.
+ * Redirige al formulario de login.
  */
 function redirectToLogin() {
-  window.location.replace("./login.html");
-}
-
-/**
- * Muestra un error crítico.
- *
- * @param {string} message
- */
-function fatal(message) {
-  document.querySelector(
-    "#app-loading"
-  ).innerHTML = `
-    <div class="fatal-error">
-      <h1>No fue posible cargar el panel</h1>
-
-      <p>${escapeHTML(message)}</p>
-
-      <a href="./login.html">
-        Volver al inicio de sesión
-      </a>
-    </div>
-  `;
+  window.location.replace(
+    "./login.html"
+  );
 }
 
 /**
@@ -1269,9 +935,15 @@ function fatal(message) {
  *
  * @param {string} message
  */
-function showMessage(message) {
+function showGlobalMessage(message) {
   const element =
-    document.querySelector("#global-message");
+    document.querySelector(
+      "#global-message"
+    );
+
+  if (!element) {
+    return;
+  }
 
   element.textContent = message;
   element.hidden = false;
@@ -1280,137 +952,48 @@ function showMessage(message) {
 /**
  * Limpia el mensaje global.
  */
-function clearMessage() {
+function clearGlobalMessage() {
   const element =
-    document.querySelector("#global-message");
+    document.querySelector(
+      "#global-message"
+    );
+
+  if (!element) {
+    return;
+  }
 
   element.textContent = "";
   element.hidden = true;
 }
 
 /**
- * Cambia el estado visual de un botón.
+ * Muestra un error crítico durante la carga inicial.
  *
- * @param {HTMLButtonElement|null} button
- * @param {boolean} loading
- * @param {string} text
+ * @param {string} message
  */
-function setButtonLoading(
-  button,
-  loading,
-  text
-) {
-  if (!button) {
-    return;
-  }
-
-  button.disabled = loading;
-  button.textContent = text;
-}
-
-/**
- * Asigna texto a un selector.
- *
- * @param {string} selector
- * @param {string|number} value
- */
-function setText(selector, value) {
-  const element =
-    document.querySelector(selector);
-
-  if (element) {
-    element.textContent =
-      String(value);
-  }
-}
-
-/**
- * Formatea valores monetarios.
- *
- * @param {unknown} value
- * @returns {string}
- */
-function money(value) {
-  return new Intl.NumberFormat(
-    "es-EC",
-    {
-      style: "currency",
-      currency: "USD"
-    }
-  ).format(Number(value || 0));
-}
-
-/**
- * Convierte un valor técnico a texto.
- *
- * @param {unknown} value
- * @returns {string}
- */
-function pretty(value) {
-  return String(value || "")
-    .replaceAll("_", " ")
-    .replace(
-      /\b\w/g,
-      (character) =>
-        character.toUpperCase()
+function renderFatalError(message) {
+  const loading =
+    document.querySelector(
+      "#app-loading"
     );
-}
 
-/**
- * Obtiene las iniciales del usuario.
- *
- * @param {string} name
- * @returns {string}
- */
-function getInitials(name) {
-  const initials =
-    String(name || "TG")
-      .trim()
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((word) => word.charAt(0))
-      .join("")
-      .toUpperCase();
+  loading.innerHTML = `
+    <div class="fatal-error">
+      <h1>
+        No fue posible cargar el panel
+      </h1>
 
-  return initials || "TG";
-}
+      <p>
+        ${window.toscanaUtils
+          ? window.toscanaUtils.escapeHTML(
+              message
+            )
+          : String(message)}
+      </p>
 
-/**
- * Escapa texto para insertarlo en HTML.
- *
- * @param {unknown} value
- * @returns {string}
- */
-function escapeHTML(value) {
-  return String(value ?? "").replace(
-    /[&<>"']/g,
-    (character) => {
-      const entities = {
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#039;"
-      };
-
-      return entities[character];
-    }
-  );
-}
-
-/**
- * Escapa valores usados en selectores CSS.
- *
- * @param {string} value
- * @returns {string}
- */
-function escapeSelector(value) {
-  if (window.CSS?.escape) {
-    return window.CSS.escape(value);
-  }
-
-  return String(value).replace(
-    /[^a-zA-Z0-9_-]/g,
-    ""
-  );
+      <a href="./login.html">
+        Volver al inicio de sesión
+      </a>
+    </div>
+  `;
 }
