@@ -12,7 +12,8 @@
  * - Mostrar pedidos por preparar, en preparación y listos.
  * - Consultar productos y observaciones.
  * - Cambiar estados mediante la RPC actualizar_estado_pedido.
- * - Refrescar automáticamente el tablero después de cada cambio.
+ * - Escuchar cambios mediante Supabase Realtime.
+ * - Refrescar automáticamente sin duplicar consultas.
  */
 
 (function initializeKitchenModule() {
@@ -23,10 +24,15 @@
     "listo"
   ];
 
+  const REALTIME_REFRESH_DELAY = 350;
+
   const state = {
     initialized: false,
     loading: false,
+    refreshPending: false,
     updatingOrderId: null,
+    realtimeTimer: null,
+    unsubscribeRealtime: null,
     orders: [],
     details: new Map(),
     callbacks: {
@@ -74,6 +80,7 @@
     }
 
     setupEvents();
+    setupRealtime();
 
     state.initialized = true;
 
@@ -101,6 +108,12 @@
         "Las utilidades compartidas no están disponibles."
       );
     }
+
+    if (!window.toscanaRealtime) {
+      throw new Error(
+        "El servicio Realtime no está disponible."
+      );
+    }
   }
 
   /**
@@ -120,6 +133,78 @@
   }
 
   /**
+   * Activa la suscripción Realtime.
+   */
+  function setupRealtime() {
+    if (state.unsubscribeRealtime) {
+      state.unsubscribeRealtime();
+    }
+
+    state.unsubscribeRealtime =
+      window.toscanaRealtime.subscribe(
+        handleRealtimeChange
+      );
+  }
+
+  /**
+   * Procesa un cambio recibido desde Supabase Realtime.
+   *
+   * @param {object} event
+   */
+  function handleRealtimeChange(event) {
+    if (!state.initialized) {
+      return;
+    }
+
+    if (!document.querySelector("#view-cocina")) {
+      return;
+    }
+
+    const newState =
+      event?.newRecord?.estado || null;
+
+    const oldState =
+      event?.oldRecord?.estado || null;
+
+    const affectsKitchen =
+      event?.type === "INSERT" ||
+      KITCHEN_STATES.includes(newState) ||
+      KITCHEN_STATES.includes(oldState);
+
+    if (!affectsKitchen) {
+      return;
+    }
+
+    scheduleRealtimeRefresh();
+  }
+
+  /**
+   * Programa un refresco breve para agrupar eventos consecutivos.
+   */
+  function scheduleRealtimeRefresh() {
+    if (state.realtimeTimer) {
+      window.clearTimeout(
+        state.realtimeTimer
+      );
+    }
+
+    state.realtimeTimer =
+      window.setTimeout(
+        async () => {
+          state.realtimeTimer = null;
+
+          if (state.loading) {
+            state.refreshPending = true;
+            return;
+          }
+
+          await refresh();
+        },
+        REALTIME_REFRESH_DELAY
+      );
+  }
+
+  /**
    * Recarga toda la información del tablero de cocina.
    *
    * @returns {Promise<void>}
@@ -130,10 +215,12 @@
     }
 
     if (state.loading) {
+      state.refreshPending = true;
       return;
     }
 
     state.loading = true;
+    state.refreshPending = false;
     state.callbacks.clearMessage();
 
     const refreshButton = document.querySelector(
@@ -189,6 +276,15 @@
       );
 
       state.loading = false;
+
+      if (state.refreshPending) {
+        state.refreshPending = false;
+
+        window.setTimeout(
+          refresh,
+          150
+        );
+      }
     }
   }
 
@@ -865,14 +961,28 @@
   }
 
   /**
-   * Limpia el estado interno.
+   * Limpia el estado interno y cancela Realtime.
    */
   function destroy() {
     state.initialized = false;
     state.loading = false;
+    state.refreshPending = false;
     state.updatingOrderId = null;
     state.orders = [];
     state.details.clear();
+
+    if (state.realtimeTimer) {
+      window.clearTimeout(
+        state.realtimeTimer
+      );
+
+      state.realtimeTimer = null;
+    }
+
+    if (state.unsubscribeRealtime) {
+      state.unsubscribeRealtime();
+      state.unsubscribeRealtime = null;
+    }
 
     state.callbacks = {
       showMessage: null,
@@ -920,9 +1030,11 @@
       initialize,
       refresh,
       destroy,
+
       getOrders() {
         return [...state.orders];
       },
+
       isInitialized() {
         return state.initialized;
       }
