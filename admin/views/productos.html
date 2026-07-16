@@ -1,0 +1,326 @@
+<section id="view-productos" class="panel-view active">
+  <div class="view-header">
+    <div>
+      <h2>Gestión de productos</h2>
+
+      <p>
+        Administra el catálogo visible en el menú público de Toscana Grill.
+      </p>
+    </div>
+
+    <button
+      id="new-product-button"
+      class="kitchen-action-button"
+      type="button"
+    >
+      Nuevo producto
+    </button>
+  </div>
+
+  <div class="product-admin-summary">
+    <article class="metric-card">
+      <span>Total de productos</span>
+
+      <strong id="products-total-count">
+        0
+      </strong>
+
+      <small>
+        Productos registrados
+      </small>
+    </article>
+
+    <article class="metric-card">
+      <span>Disponibles</span>
+
+      <strong id="products-available-count">
+        0
+      </strong>
+
+      <small>
+        Visibles y disponibles
+      </small>
+    </article>
+
+    <article class="metric-card">
+      <span>Agotados</span>
+
+      <strong id="products-unavailable-count">
+        0
+      </strong>
+
+      <small>
+        Temporalmente no disponibles
+      </small>
+    </article>
+
+    <article class="metric-card">
+      <span>Inactivos</span>
+
+      <strong id="products-inactive-count">
+        0
+      </strong>
+
+      <small>
+        Ocultos del menú
+      </small>
+    </article>
+  </div>
+
+  <div class="content-card">
+    <div class="products-toolbar">
+      <div class="history-filter-field products-search-field">
+        <label for="products-search">
+          Buscar producto
+        </label>
+
+        <input
+          id="products-search"
+          type="search"
+          placeholder="Nombre, descripción o categoría"
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="history-filter-field">
+        <label for="products-category-filter">
+          Categoría
+        </label>
+
+        <select id="products-category-filter">
+          <option value="">
+            Todas
+          </option>
+        </select>
+      </div>
+
+      <div class="history-filter-field">
+        <label for="products-status-filter">
+          Estado
+        </label>
+
+        <select id="products-status-filter">
+          <option value="">
+            Todos
+          </option>
+
+          <option value="available">
+            Disponibles
+          </option>
+
+          <option value="unavailable">
+            Agotados
+          </option>
+
+          <option value="inactive">
+            Inactivos
+          </option>
+        </select>
+      </div>
+
+      <div class="products-toolbar-actions">
+        <button
+          id="refresh-products"
+          class="secondary-button"
+          type="button"
+        >
+          Actualizar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="content-card">
+    <div class="card-header">
+      <div>
+        <h2>Catálogo</h2>
+
+        <p>
+          Edita precios, disponibilidad y estado de cada producto.
+        </p>
+      </div>
+
+      <span
+        id="products-results-badge"
+        class="counter-badge"
+      >
+        0
+      </span>
+    </div>
+
+    <div
+      id="products-loading"
+      class="section-loading"
+      hidden
+    >
+      Cargando productos…
+    </div>
+
+    <div
+      id="products-empty"
+      class="empty-state"
+      hidden
+    >
+      <strong>
+        No se encontraron productos.
+      </strong>
+
+      <p>
+        Ajusta los filtros o crea un nuevo producto.
+      </p>
+    </div>
+
+    <div
+      id="products-grid"
+      class="products-admin-grid"
+    ></div>
+  </div>
+
+  <dialog
+    id="product-dialog"
+    class="order-dialog product-dialog"
+  >
+    <button
+      id="close-product-dialog"
+      class="dialog-close"
+      type="button"
+      aria-label="Cerrar formulario de producto"
+    >
+      ×
+    </button>
+
+    <form id="product-form" novalidate>
+      <div class="order-detail-header">
+        <div>
+          <p>Catálogo</p>
+
+          <h2 id="product-dialog-title">
+            Nuevo producto
+          </h2>
+        </div>
+      </div>
+
+      <input
+        id="product-id"
+        type="hidden"
+      >
+
+      <div class="product-form-grid">
+        <div class="history-filter-field">
+          <label for="product-name">
+            Nombre
+          </label>
+
+          <input
+            id="product-name"
+            type="text"
+            maxlength="120"
+            required
+          >
+        </div>
+
+        <div class="history-filter-field">
+          <label for="product-category">
+            Categoría
+          </label>
+
+          <select id="product-category">
+            <option value="">
+              Sin categoría
+            </option>
+          </select>
+        </div>
+
+        <div class="history-filter-field">
+          <label for="product-price">
+            Precio
+          </label>
+
+          <input
+            id="product-price"
+            type="number"
+            min="0"
+            step="0.01"
+            inputmode="decimal"
+            required
+          >
+        </div>
+
+        <div class="history-filter-field product-image-field">
+          <label for="product-image-url">
+            URL de imagen
+          </label>
+
+          <input
+            id="product-image-url"
+            type="url"
+            maxlength="1000"
+            placeholder="https://..."
+          >
+        </div>
+
+        <div class="history-filter-field product-description-field">
+          <label for="product-description">
+            Descripción
+          </label>
+
+          <textarea
+            id="product-description"
+            rows="4"
+            maxlength="500"
+          ></textarea>
+        </div>
+      </div>
+
+      <div class="product-form-options">
+        <label class="product-checkbox">
+          <input
+            id="product-available"
+            type="checkbox"
+            checked
+          >
+
+          <span>
+            Disponible para pedidos
+          </span>
+        </label>
+
+        <label class="product-checkbox">
+          <input
+            id="product-active"
+            type="checkbox"
+            checked
+          >
+
+          <span>
+            Activo y visible en el menú
+          </span>
+        </label>
+      </div>
+
+      <p
+        id="product-form-message"
+        class="global-message"
+        hidden
+      ></p>
+
+      <div class="product-form-actions">
+        <button
+          id="cancel-product-button"
+          class="secondary-button"
+          type="button"
+        >
+          Cancelar
+        </button>
+
+        <button
+          id="save-product-button"
+          class="kitchen-action-button"
+          type="submit"
+        >
+          Guardar producto
+        </button>
+      </div>
+    </form>
+  </dialog>
+</section>
