@@ -1068,32 +1068,64 @@ function renderProductCard(product) {
 
   const quantity = cartItem?.quantity || 0;
 
+  const quantityIndicator =
+    quantity > 0
+      ? `
+        <span class="product-cart-quantity">
+          ${quantity}
+          ${quantity === 1 ? "agregado" : "agregados"}
+        </span>
+      `
+      : "";
+
   const imageContent = product.imageUrl
     ? `
       <img
         src="${escapeAttribute(product.imageUrl)}"
         alt="${escapeAttribute(product.name)}"
         loading="lazy"
-        onerror="this.closest('.product-image')?.classList.add('product-image-error'); this.remove();"
+        decoding="async"
+        onerror="
+          this.remove();
+          const container = this.closest('.product-image');
+
+          if (container) {
+            container.classList.add('product-image-error');
+
+            const fallback =
+              container.querySelector('.product-image-fallback');
+
+            if (fallback) {
+              fallback.hidden = false;
+            }
+          }
+        "
       >
+
+      <div
+        class="product-image-fallback"
+        aria-hidden="true"
+        hidden
+      >
+        <span class="product-flame">🔥</span>
+
+        <small>
+          Toscana Grill
+        </small>
+      </div>
     `
     : `
-      <span
-        class="product-image-placeholder"
+      <div
+        class="product-image-fallback"
         aria-hidden="true"
       >
-        🍽️
-      </span>
-    `;
+        <span class="product-flame">🔥</span>
 
-  const quantityIndicator =
-    quantity > 0
-      ? `
-        <span class="product-cart-quantity">
-          ${quantity} en el pedido
-        </span>
-      `
-      : "";
+        <small>
+          Toscana Grill
+        </small>
+      </div>
+    `;
 
   return `
     <article class="product-card">
@@ -1102,7 +1134,7 @@ function renderProductCard(product) {
       </div>
 
       <div class="product-card-content">
-        <div>
+        <div class="product-card-information">
           <p class="product-category">
             ${escapeHtml(product.categoryName)}
           </p>
@@ -1123,7 +1155,7 @@ function renderProductCard(product) {
         </div>
 
         <div class="product-card-footer">
-          <div>
+          <div class="product-price-wrapper">
             <strong class="product-price">
               ${formatMoney(product.price)}
             </strong>
@@ -1137,6 +1169,7 @@ function renderProductCard(product) {
             data-add-product="${product.id}"
             aria-label="Agregar ${escapeAttribute(product.name)}"
           >
+            <span aria-hidden="true">+</span>
             Agregar
           </button>
         </div>
