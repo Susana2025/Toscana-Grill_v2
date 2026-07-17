@@ -47,13 +47,13 @@ const FEES = Object.freeze({
 const ECUADOR_TIME_ZONE = "America/Guayaquil";
 
 const DEFAULT_SCHEDULE = Object.freeze({
-  0: { open: "12:00", close: "22:00" },
-  1: { open: "12:00", close: "22:00" },
-  2: { open: "12:00", close: "22:00" },
-  3: { open: "12:00", close: "22:00" },
-  4: { open: "12:00", close: "22:00" },
-  5: { open: "12:00", close: "23:00" },
-  6: { open: "12:00", close: "23:00" }
+  0: { open: "00:00", close: "23:59" },
+  1: { open: "00:00", close: "23:59" },
+  2: { open: "00:00", close: "23:59" },
+  3: { open: "00:00", close: "23:59" },
+  4: { open: "00:00", close: "23:59" },
+  5: { open: "00:00", close: "23:59" },
+  6: { open: "00:00", close: "23:59" }
 });
 
 /* ============================================================
