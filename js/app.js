@@ -1,310 +1,561 @@
 "use strict";
 
-/**
- * Toscana Grill
- * Menú público, portada, carrito móvil y registro de pedidos.
- *
- * Incluye:
- * - Portada visual.
- * - Reloj de Ecuador en tiempo real.
- * - Horario abierto/cerrado.
- * - Navegación entre portada y menú.
- * - Filtros por categorías.
- * - Búsqueda.
- * - Carrito persistente.
- * - Panel inferior del pedido.
- * - Costo de desechables para llevar y delivery.
- * - QR por mesa.
- * - Modo de toma manual.
- * - Registro mediante Supabase.
- */
+/* ============================================================
+   TOSCANA GRILL
+   APLICACIÓN PÚBLICA DEL MENÚ Y PEDIDOS
 
-const DISPOSABLES_COST = 0.50;
+   Funcionalidades:
+   - Portada y menú
+   - Categorías y búsqueda
+   - Carrito persistente
+   - Pedidos de mesa
+   - Pedidos para llevar
+   - Delivery urbano
+   - Delivery fuera de zona
+   - Ticket TG-YYMMDD-NNNN
+   - Seguimiento mediante ticket y token privado
+   - Pedidos guardados en el dispositivo
+   - Reloj y estado del establecimiento
+   ============================================================ */
 
-const appState = {
-  menu: [],
+/* ============================================================
+   1. CONSTANTES
+   ============================================================ */
+
+const STORAGE_KEYS = Object.freeze({
+  cart: "toscana_cart_v2",
+  savedOrders: "toscana_saved_orders_v2",
+  lastOrder: "toscana_last_order_v2"
+});
+
+const ORDER_TYPES = Object.freeze({
+  table: "mesa",
+  takeaway: "para_llevar",
+  delivery: "delivery"
+});
+
+const DELIVERY_ZONES = Object.freeze({
+  urban: "urbana",
+  outside: "fuera_urbana"
+});
+
+const FEES = Object.freeze({
+  disposable: 0.5,
+  urbanDelivery: 2
+});
+
+const ECUADOR_TIME_ZONE = "America/Guayaquil";
+
+const DEFAULT_SCHEDULE = Object.freeze({
+  0: { open: "12:00", close: "22:00" },
+  1: { open: "12:00", close: "22:00" },
+  2: { open: "12:00", close: "22:00" },
+  3: { open: "12:00", close: "22:00" },
+  4: { open: "12:00", close: "22:00" },
+  5: { open: "12:00", close: "23:00" },
+  6: { open: "12:00", close: "23:00" }
+});
+
+/* ============================================================
+   2. ESTADO GLOBAL
+   ============================================================ */
+
+const state = {
+  products: [],
   categories: [],
   tables: [],
   cart: [],
 
-  activeCategory: "todos",
+  selectedCategory: "all",
+  searchTerm: "",
 
-  qrTableNumber: null,
-  qrTable: null,
-  adminMode: false,
+  qrTableId: null,
 
-  loadingMenu: false,
-  loadingTables: false,
-  submittingOrder: false,
+  lastCreatedOrder: null,
+  currentTrackingTicket: null,
 
-  clockTimer: null
+  isLoadingMenu: false,
+  isSubmittingOrder: false,
+  isTrackingOrder: false
 };
 
-document.addEventListener(
-  "DOMContentLoaded",
-  initializeApplication
-);
+/* ============================================================
+   3. REFERENCIAS DEL DOM
+   ============================================================ */
 
-/**
- * Inicializa la aplicación.
- *
- * @returns {Promise<void>}
- */
+const elements = {};
+
+document.addEventListener("DOMContentLoaded", initializeApplication);
+
+/* ============================================================
+   4. INICIALIZACIÓN
+   ============================================================ */
+
 async function initializeApplication() {
-  bindPermanentEvents();
-  detectURLMode();
-  restoreCart();
-  renderCart();
-  initializeClock();
-  renderBusinessStatus();
+  cacheElements();
+  bindEvents();
 
-  if (!window.toscanaSupabase) {
-    showOrderMessage(
-      "No se configuró correctamente la conexión con Supabase."
+  restoreCart();
+  resolveTableFromUrl();
+
+  updateEcuadorClock();
+  updateBusinessStatus();
+
+  window.setInterval(() => {
+    updateEcuadorClock();
+    updateBusinessStatus();
+  }, 1000);
+
+  renderCart();
+  renderSavedOrders();
+
+  if (!getSupabaseClient()) {
+    renderMenuError(
+      "No se encontró la configuración de Supabase. " +
+      "Verifica que el cliente se cargue antes de js/app.js."
     );
 
-    renderMenuError(
-      "No fue posible conectar con el catálogo."
+    showOrderMessage(
+      "No se pudo conectar con el sistema de pedidos.",
+      "error"
     );
 
     return;
   }
 
-  try {
-    await Promise.all([
-      loadMenu(),
-      loadTables()
-    ]);
-
-    applyURLConfiguration();
-    toggleOrderFields();
-
-    if (
-      appState.adminMode ||
-      appState.qrTableNumber
-    ) {
-      showMenuView();
-    }
-  } catch (error) {
-    console.error(
-      "Error al inicializar Toscana Grill:",
-      error
-    );
-
-    showOrderMessage(
-      error?.message ||
-      "No fue posible cargar el menú."
-    );
-  }
+  await Promise.all([
+    loadMenu(),
+    loadTables()
+  ]);
 }
 
-/* =========================================================
-   EVENTOS
-   ========================================================= */
+/* ============================================================
+   5. CAPTURA DE ELEMENTOS
+   ============================================================ */
 
-/**
- * Registra los eventos permanentes.
- */
-function bindPermanentEvents() {
-  const showMenuButton =
-    document.querySelector(
-      "#show-menu-button"
-    );
+function cacheElements() {
+  elements.homeView =
+    document.getElementById("homeView");
 
-  const showCartButton =
-    document.querySelector(
-      "#show-cart-button"
-    );
+  elements.menuView =
+    document.getElementById("menuView");
 
-  const backHomeButton =
-    document.querySelector(
-      "#back-home-button"
-    );
+  elements.openMenuButton =
+    document.getElementById("openMenuButton");
 
-  const openCartTopButton =
-    document.querySelector(
-      "#open-cart-top-button"
-    );
+  elements.openOrderTrackingButton =
+    document.getElementById("openOrderTrackingButton");
 
-  const mobileCartButton =
-    document.querySelector(
-      "#mobile-cart-button"
-    );
+  elements.backHomeButton =
+    document.getElementById("backHomeButton");
 
-  const closeCartButton =
-    document.querySelector(
-      "#close-cart-button"
-    );
+  elements.ecuadorClock =
+    document.getElementById("ecuadorClock");
 
-  const cartOverlay =
-    document.querySelector(
-      "#cart-overlay"
-    );
+  elements.businessStatus =
+    document.getElementById("businessStatus");
 
-  const searchInput =
-    document.querySelector(
-      "#search"
-    );
+  elements.businessScheduleMessage =
+    document.getElementById("businessScheduleMessage");
 
-  const orderType =
-    document.querySelector(
-      "#order-type"
-    );
+  elements.productSearchInput =
+    document.getElementById("productSearchInput");
 
-  const submitOrderButton =
-    document.querySelector(
-      "#submit-order"
-    );
+  elements.categoryBar =
+    document.getElementById("categoryBar");
 
-  const newOrderButton =
-    document.querySelector(
-      "#new-order"
-    );
+  elements.menuContainer =
+    document.getElementById("menuContainer");
 
-  if (showMenuButton) {
-    showMenuButton.addEventListener(
-      "click",
-      showMenuView
-    );
-  }
+  elements.menuResultsTitle =
+    document.getElementById("menuResultsTitle");
 
-  if (showCartButton) {
-    showCartButton.addEventListener(
-      "click",
-      openCart
-    );
-  }
+  elements.menuResultsCount =
+    document.getElementById("menuResultsCount");
 
-  if (backHomeButton) {
-    backHomeButton.addEventListener(
-      "click",
-      showHomeView
-    );
-  }
+  elements.openCartButton =
+    document.getElementById("openCartButton");
 
-  if (openCartTopButton) {
-    openCartTopButton.addEventListener(
-      "click",
-      openCart
-    );
-  }
+  elements.headerCartCount =
+    document.getElementById("headerCartCount");
 
-  if (mobileCartButton) {
-    mobileCartButton.addEventListener(
-      "click",
-      openCart
-    );
-  }
+  elements.mobileCartButton =
+    document.getElementById("mobileCartButton");
 
-  if (closeCartButton) {
-    closeCartButton.addEventListener(
-      "click",
-      closeCart
-    );
-  }
+  elements.mobileCartCount =
+    document.getElementById("mobileCartCount");
 
-  if (cartOverlay) {
-    cartOverlay.addEventListener(
-      "click",
-      closeCart
-    );
-  }
+  elements.mobileCartTotal =
+    document.getElementById("mobileCartTotal");
 
-  if (searchInput) {
-    searchInput.addEventListener(
-      "input",
-      renderMenu
-    );
-  }
+  elements.cartOverlay =
+    document.getElementById("cartOverlay");
 
-  if (orderType) {
-    orderType.addEventListener(
-      "change",
-      () => {
-        toggleOrderFields();
-        renderCart();
-      }
-    );
-  }
+  elements.cartDrawer =
+    document.getElementById("cartDrawer");
 
-  if (submitOrderButton) {
-    submitOrderButton.addEventListener(
-      "click",
-      submitOrder
-    );
-  }
+  elements.closeCartButton =
+    document.getElementById("closeCartButton");
 
-  if (newOrderButton) {
-    newOrderButton.addEventListener(
-      "click",
-      startNewOrder
-    );
-  }
+  elements.cartItemSummary =
+    document.getElementById("cartItemSummary");
+
+  elements.cartItems =
+    document.getElementById("cartItems");
+
+  elements.orderForm =
+    document.getElementById("orderForm");
+
+  elements.orderType =
+    document.getElementById("orderType");
+
+  elements.tableField =
+    document.getElementById("tableField");
+
+  elements.tableSelect =
+    document.getElementById("tableSelect");
+
+  elements.qrTableNotice =
+    document.getElementById("qrTableNotice");
+
+  elements.customerName =
+    document.getElementById("customerName");
+
+  elements.customerPhone =
+    document.getElementById("customerPhone");
+
+  elements.phoneRequiredText =
+    document.getElementById("phoneRequiredText");
+
+  elements.phoneHelpText =
+    document.getElementById("phoneHelpText");
+
+  elements.deliveryFields =
+    document.getElementById("deliveryFields");
+
+  elements.deliveryZone =
+    document.getElementById("deliveryZone");
+
+  elements.urbanDeliveryNotice =
+    document.getElementById("urbanDeliveryNotice");
+
+  elements.outsideDeliveryNotice =
+    document.getElementById("outsideDeliveryNotice");
+
+  elements.deliveryAddress =
+    document.getElementById("deliveryAddress");
+
+  elements.deliveryConfirmation =
+    document.getElementById("deliveryConfirmation");
+
+  elements.orderNotes =
+    document.getElementById("orderNotes");
+
+  elements.cartSubtotal =
+    document.getElementById("cartSubtotal");
+
+  elements.disposableSummaryRow =
+    document.getElementById("disposableSummaryRow");
+
+  elements.cartDisposableFee =
+    document.getElementById("cartDisposableFee");
+
+  elements.deliverySummaryRow =
+    document.getElementById("deliverySummaryRow");
+
+  elements.cartDeliveryFee =
+    document.getElementById("cartDeliveryFee");
+
+  elements.pendingDeliverySummaryRow =
+    document.getElementById("pendingDeliverySummaryRow");
+
+  elements.cartTotalLabel =
+    document.getElementById("cartTotalLabel");
+
+  elements.cartTotal =
+    document.getElementById("cartTotal");
+
+  elements.preliminaryTotalNotice =
+    document.getElementById("preliminaryTotalNotice");
+
+  elements.orderMessage =
+    document.getElementById("orderMessage");
+
+  elements.submitOrderButton =
+    document.getElementById("submitOrderButton");
+
+  elements.successDialog =
+    document.getElementById("successDialog");
+
+  elements.successDescription =
+    document.getElementById("successDescription");
+
+  elements.successTicket =
+    document.getElementById("successTicket");
+
+  elements.successTicketReminder =
+    document.getElementById("successTicketReminder");
+
+  elements.successStatus =
+    document.getElementById("successStatus");
+
+  elements.successTotalLabel =
+    document.getElementById("successTotalLabel");
+
+  elements.successTotal =
+    document.getElementById("successTotal");
+
+  elements.successDeliveryPendingRow =
+    document.getElementById("successDeliveryPendingRow");
+
+  elements.successDeliveryMessage =
+    document.getElementById("successDeliveryMessage");
+
+  elements.trackCreatedOrderButton =
+    document.getElementById("trackCreatedOrderButton");
+
+  elements.closeSuccessDialogButton =
+    document.getElementById("closeSuccessDialogButton");
+
+  elements.trackingDialog =
+    document.getElementById("trackingDialog");
+
+  elements.closeTrackingDialogButton =
+    document.getElementById("closeTrackingDialogButton");
+
+  elements.trackingForm =
+    document.getElementById("trackingForm");
+
+  elements.trackingTicketInput =
+    document.getElementById("trackingTicketInput");
+
+  elements.savedOrdersField =
+    document.getElementById("savedOrdersField");
+
+  elements.savedOrdersSelect =
+    document.getElementById("savedOrdersSelect");
+
+  elements.trackingMessage =
+    document.getElementById("trackingMessage");
+
+  elements.submitTrackingButton =
+    document.getElementById("submitTrackingButton");
+
+  elements.trackingResult =
+    document.getElementById("trackingResult");
+
+  elements.trackingStatus =
+    document.getElementById("trackingStatus");
+
+  elements.trackingTicket =
+    document.getElementById("trackingTicket");
+
+  elements.trackingType =
+    document.getElementById("trackingType");
+
+  elements.trackingTableRow =
+    document.getElementById("trackingTableRow");
+
+  elements.trackingTable =
+    document.getElementById("trackingTable");
+
+  elements.trackingZoneRow =
+    document.getElementById("trackingZoneRow");
+
+  elements.trackingZone =
+    document.getElementById("trackingZone");
+
+  elements.trackingAddressRow =
+    document.getElementById("trackingAddressRow");
+
+  elements.trackingAddress =
+    document.getElementById("trackingAddress");
+
+  elements.trackingSubtotal =
+    document.getElementById("trackingSubtotal");
+
+  elements.trackingDisposableFee =
+    document.getElementById("trackingDisposableFee");
+
+  elements.trackingDeliveryFee =
+    document.getElementById("trackingDeliveryFee");
+
+  elements.trackingTotalLabel =
+    document.getElementById("trackingTotalLabel");
+
+  elements.trackingTotal =
+    document.getElementById("trackingTotal");
+
+  elements.trackingPreliminaryNotice =
+    document.getElementById("trackingPreliminaryNotice");
+
+  elements.trackingItems =
+    document.getElementById("trackingItems");
+
+  elements.refreshTrackingButton =
+    document.getElementById("refreshTrackingButton");
+}
+
+/* ============================================================
+   6. EVENTOS
+   ============================================================ */
+
+function bindEvents() {
+  elements.openMenuButton?.addEventListener(
+    "click",
+    showMenuView
+  );
+
+  elements.backHomeButton?.addEventListener(
+    "click",
+    showHomeView
+  );
+
+  elements.openOrderTrackingButton?.addEventListener(
+    "click",
+    () => openTrackingDialog()
+  );
+
+  elements.productSearchInput?.addEventListener(
+    "input",
+    handleSearchInput
+  );
+
+  elements.categoryBar?.addEventListener(
+    "click",
+    handleCategoryClick
+  );
+
+  elements.menuContainer?.addEventListener(
+    "click",
+    handleMenuClick
+  );
+
+  elements.openCartButton?.addEventListener(
+    "click",
+    openCart
+  );
+
+  elements.mobileCartButton?.addEventListener(
+    "click",
+    openCart
+  );
+
+  elements.closeCartButton?.addEventListener(
+    "click",
+    closeCart
+  );
+
+  elements.cartOverlay?.addEventListener(
+    "click",
+    closeCart
+  );
+
+  elements.cartItems?.addEventListener(
+    "click",
+    handleCartClick
+  );
+
+  elements.cartItems?.addEventListener(
+    "input",
+    handleCartInput
+  );
+
+  elements.orderType?.addEventListener(
+    "change",
+    handleOrderTypeChange
+  );
+
+  elements.deliveryZone?.addEventListener(
+    "change",
+    handleDeliveryZoneChange
+  );
+
+  elements.customerPhone?.addEventListener(
+    "input",
+    sanitizePhoneInput
+  );
+
+  elements.orderForm?.addEventListener(
+    "submit",
+    submitOrder
+  );
+
+  elements.closeSuccessDialogButton?.addEventListener(
+    "click",
+    closeSuccessDialog
+  );
+
+  elements.trackCreatedOrderButton?.addEventListener(
+    "click",
+    trackLastCreatedOrder
+  );
+
+  elements.closeTrackingDialogButton?.addEventListener(
+    "click",
+    closeTrackingDialog
+  );
+
+  elements.trackingForm?.addEventListener(
+    "submit",
+    submitTracking
+  );
+
+  elements.trackingTicketInput?.addEventListener(
+    "input",
+    formatTrackingTicketInput
+  );
+
+  elements.savedOrdersSelect?.addEventListener(
+    "change",
+    handleSavedOrderSelection
+  );
+
+  elements.refreshTrackingButton?.addEventListener(
+    "click",
+    refreshCurrentTracking
+  );
 
   document.addEventListener(
     "keydown",
-    (event) => {
-      if (event.key === "Escape") {
-        closeCart();
-      }
-    }
+    handleGlobalKeydown
   );
 }
 
-/* =========================================================
-   NAVEGACIÓN ENTRE VISTAS
-   ========================================================= */
+/* ============================================================
+   7. NAVEGACIÓN ENTRE PORTADA Y MENÚ
+   ============================================================ */
 
-/**
- * Muestra la portada.
- */
+function showMenuView() {
+  if (elements.homeView) {
+    elements.homeView.hidden = true;
+  }
+
+  if (elements.menuView) {
+    elements.menuView.hidden = false;
+  }
+
+  updateMobileCartVisibility();
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+
 function showHomeView() {
-  const homeView =
-    document.querySelector(
-      "#home-view"
-    );
-
-  const menuView =
-    document.querySelector(
-      "#menu-view"
-    );
-
-  if (homeView) {
-    homeView.hidden = false;
-  }
-
-  if (menuView) {
-    menuView.hidden = true;
-  }
-
   closeCart();
 
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth"
-  });
-}
-
-/**
- * Muestra el menú.
- */
-function showMenuView() {
-  const homeView =
-    document.querySelector(
-      "#home-view"
-    );
-
-  const menuView =
-    document.querySelector(
-      "#menu-view"
-    );
-
-  if (homeView) {
-    homeView.hidden = true;
+  if (elements.menuView) {
+    elements.menuView.hidden = true;
   }
 
-  if (menuView) {
-    menuView.hidden = false;
+  if (elements.homeView) {
+    elements.homeView.hidden = false;
+  }
+
+  if (elements.mobileCartButton) {
+    elements.mobileCartButton.hidden = true;
   }
 
   window.scrollTo({
@@ -313,1106 +564,362 @@ function showMenuView() {
   });
 }
 
-/**
- * Abre el panel del pedido.
- */
-function openCart() {
-  const drawer =
-    document.querySelector(
-      "#cart-drawer"
-    );
+/* ============================================================
+   8. SUPABASE
+   ============================================================ */
 
-  const overlay =
-    document.querySelector(
-      "#cart-overlay"
-    );
-
-  if (!drawer || !overlay) {
-    return;
-  }
-
-  overlay.hidden = false;
-
-  drawer.classList.add(
-    "open"
-  );
-
-  drawer.setAttribute(
-    "aria-hidden",
-    "false"
-  );
-
-  document.body.classList.add(
-    "cart-open"
-  );
+function getSupabaseClient() {
+  return window.toscanaSupabase || null;
 }
 
-/**
- * Cierra el panel del pedido.
- */
-function closeCart() {
-  const drawer =
-    document.querySelector(
-      "#cart-drawer"
-    );
+/* ============================================================
+   9. CARGA DEL MENÚ
+   ============================================================ */
 
-  const overlay =
-    document.querySelector(
-      "#cart-overlay"
-    );
-
-  if (!drawer || !overlay) {
-    return;
-  }
-
-  drawer.classList.remove(
-    "open"
-  );
-
-  drawer.setAttribute(
-    "aria-hidden",
-    "true"
-  );
-
-  document.body.classList.remove(
-    "cart-open"
-  );
-
-  window.setTimeout(
-    () => {
-      if (
-        !drawer.classList.contains(
-          "open"
-        )
-      ) {
-        overlay.hidden = true;
-      }
-    },
-    220
-  );
-}
-
-/* =========================================================
-   RELOJ Y HORARIO
-   ========================================================= */
-
-/**
- * Inicia el reloj de Ecuador.
- */
-function initializeClock() {
-  updateEcuadorClock();
-
-  if (appState.clockTimer) {
-    window.clearInterval(
-      appState.clockTimer
-    );
-  }
-
-  appState.clockTimer =
-    window.setInterval(
-      () => {
-        updateEcuadorClock();
-        renderBusinessStatus();
-      },
-      1000
-    );
-}
-
-/**
- * Actualiza el reloj de Ecuador.
- */
-function updateEcuadorClock() {
-  const element =
-    document.querySelector(
-      "#ecuador-clock"
-    );
-
-  if (!element) {
-    return;
-  }
-
-  const now = new Date();
-
-  const formatted =
-    new Intl.DateTimeFormat(
-      "es-EC",
-      {
-        timeZone:
-          "America/Guayaquil",
-        weekday:
-          "long",
-        year:
-          "numeric",
-        month:
-          "long",
-        day:
-          "numeric",
-        hour:
-          "numeric",
-        minute:
-          "2-digit",
-        second:
-          "2-digit",
-        hour12:
-          true
-      }
-    ).format(now);
-
-  element.textContent =
-    `🕒 Hora Ecuador · ${formatted}`;
-}
-
-/**
- * Calcula y muestra si el restaurante está abierto.
- *
- * Horario configurado:
- * - Lunes a jueves: 17:00 a 22:00
- * - Viernes: 17:00 a 23:00
- * - Sábado: 12:00 a 23:00
- * - Domingo: 12:00 a 21:00
- */
-function renderBusinessStatus() {
-  const element =
-    document.querySelector(
-      "#business-status"
-    );
-
-  if (!element) {
-    return;
-  }
-
-  const now = getEcuadorDateParts();
-
-  const schedule = {
-    0: {
-      open: 12 * 60,
-      close: 21 * 60,
-      label: "domingo 12:00 a 21:00"
-    },
-    1: {
-      open: 17 * 60,
-      close: 22 * 60,
-      label: "lunes 17:00 a 22:00"
-    },
-    2: {
-      open: 17 * 60,
-      close: 22 * 60,
-      label: "martes 17:00 a 22:00"
-    },
-    3: {
-      open: 17 * 60,
-      close: 22 * 60,
-      label: "miércoles 17:00 a 22:00"
-    },
-    4: {
-      open: 17 * 60,
-      close: 22 * 60,
-      label: "jueves 17:00 a 22:00"
-    },
-    5: {
-      open: 17 * 60,
-      close: 23 * 60,
-      label: "viernes 17:00 a 23:00"
-    },
-    6: {
-      open: 12 * 60,
-      close: 23 * 60,
-      label: "sábado 12:00 a 23:00"
-    }
-  };
-
-  const today =
-    schedule[now.weekday];
-
-  const currentMinutes =
-    now.hour * 60 +
-    now.minute;
-
-  const isOpen =
-    currentMinutes >=
-      today.open &&
-    currentMinutes <
-      today.close;
-
-  element.classList.toggle(
-    "open",
-    isOpen
-  );
-
-  element.classList.toggle(
-    "closed",
-    !isOpen
-  );
-
-  element.textContent =
-    isOpen
-      ? `Abierto ahora · ${today.label}`
-      : `Cerrado ahora · horario ${today.label}`;
-}
-
-/**
- * Obtiene las partes actuales de fecha y hora en Ecuador.
- *
- * @returns {{
- *   weekday:number,
- *   hour:number,
- *   minute:number
- * }}
- */
-function getEcuadorDateParts() {
-  const formatter =
-    new Intl.DateTimeFormat(
-      "en-US",
-      {
-        timeZone:
-          "America/Guayaquil",
-        weekday:
-          "short",
-        hour:
-          "2-digit",
-        minute:
-          "2-digit",
-        hour12:
-          false
-      }
-    );
-
-  const parts =
-    formatter.formatToParts(
-      new Date()
-    );
-
-  const weekdayText =
-    parts.find(
-      (part) =>
-        part.type ===
-        "weekday"
-    )?.value;
-
-  const weekdayMap = {
-    Sun: 0,
-    Mon: 1,
-    Tue: 2,
-    Wed: 3,
-    Thu: 4,
-    Fri: 5,
-    Sat: 6
-  };
-
-  return {
-    weekday:
-      weekdayMap[
-        weekdayText
-      ] ?? 0,
-
-    hour:
-      Number(
-        parts.find(
-          (part) =>
-            part.type ===
-            "hour"
-        )?.value ?? 0
-      ),
-
-    minute:
-      Number(
-        parts.find(
-          (part) =>
-            part.type ===
-            "minute"
-        )?.value ?? 0
-      )
-  };
-}
-
-/* =========================================================
-   PARÁMETROS DE URL
-   ========================================================= */
-
-/**
- * Detecta el modo administrativo o la mesa del QR.
- */
-function detectURLMode() {
-  const parameters =
-    new URLSearchParams(
-      window.location.search
-    );
-
-  const mode =
-    String(
-      parameters.get(
-        "modo"
-      ) || ""
-    )
-      .trim()
-      .toLowerCase();
-
-  appState.adminMode =
-    mode === "admin" ||
-    mode === "personal";
-
-  if (appState.adminMode) {
-    appState.qrTableNumber =
-      null;
-
-    appState.qrTable =
-      null;
-
-    return;
-  }
-
-  const tableParameter =
-    parameters.get(
-      "mesa"
-    );
-
-  if (!tableParameter) {
-    appState.qrTableNumber =
-      null;
-
-    return;
-  }
-
-  const tableNumber =
-    Number.parseInt(
-      tableParameter,
-      10
-    );
-
-  if (
-    !Number.isInteger(
-      tableNumber
-    ) ||
-    tableNumber <= 0
-  ) {
-    appState.qrTableNumber =
-      null;
-
-    showOrderMessage(
-      "El código QR contiene un número de mesa no válido."
-    );
-
-    return;
-  }
-
-  appState.qrTableNumber =
-    tableNumber;
-}
-
-/**
- * Aplica la configuración detectada.
- */
-function applyURLConfiguration() {
-  if (appState.adminMode) {
-    enableManualOrderMode();
-    renderAdminModeNotice();
-    return;
-  }
-
-  applyQRTable();
-}
-
-/**
- * Habilita la toma manual.
- */
-function enableManualOrderMode() {
-  const orderType =
-    document.querySelector(
-      "#order-type"
-    );
-
-  const tableSelect =
-    document.querySelector(
-      "#table-select"
-    );
-
-  if (orderType) {
-    orderType.disabled =
-      false;
-  }
-
-  if (tableSelect) {
-    tableSelect.disabled =
-      false;
-  }
-
-  appState.qrTable =
-    null;
-}
-
-/**
- * Aplica la mesa indicada por QR.
- */
-function applyQRTable() {
-  if (!appState.qrTableNumber) {
-    enableManualOrderMode();
-    return;
-  }
-
-  const table =
-    appState.tables.find(
-      (item) =>
-        Number(
-          item.numero
-        ) ===
-        Number(
-          appState.qrTableNumber
-        )
-    );
-
-  if (!table) {
-    showOrderMessage(
-      `La Mesa ${appState.qrTableNumber} no existe o está desactivada.`
-    );
-
-    appState.qrTable =
-      null;
-
-    enableManualOrderMode();
-
-    return;
-  }
-
-  appState.qrTable =
-    table;
-
-  const orderType =
-    document.querySelector(
-      "#order-type"
-    );
-
-  const tableSelect =
-    document.querySelector(
-      "#table-select"
-    );
-
-  if (orderType) {
-    orderType.value =
-      "mesa";
-
-    orderType.disabled =
-      true;
-  }
-
-  if (tableSelect) {
-    tableSelect.value =
-      String(
-        table.id
-      );
-
-    tableSelect.disabled =
-      true;
-  }
-
-  renderQRTableNotice();
-}
-
-/**
- * Muestra el aviso de modo manual.
- */
-function renderAdminModeNotice() {
-  const tableField =
-    document.querySelector(
-      "#table-field"
-    );
-
-  if (!tableField) {
-    return;
-  }
-
-  removeModeNotices();
-
-  const notice =
-    document.createElement(
-      "p"
-    );
-
-  notice.id =
-    "admin-mode-notice";
-
-  notice.className =
-    "qr-table-notice";
-
-  notice.textContent =
-    "Modo de toma manual: selecciona el tipo de pedido y la mesa correspondiente.";
-
-  tableField.appendChild(
-    notice
-  );
-}
-
-/**
- * Muestra el aviso de mesa automática.
- */
-function renderQRTableNotice() {
-  if (!appState.qrTable) {
-    return;
-  }
-
-  const tableField =
-    document.querySelector(
-      "#table-field"
-    );
-
-  if (!tableField) {
-    return;
-  }
-
-  removeModeNotices();
-
-  const tableLabel =
-    appState.qrTable.nombre ||
-    `Mesa ${appState.qrTable.numero}`;
-
-  const notice =
-    document.createElement(
-      "p"
-    );
-
-  notice.id =
-    "qr-table-notice";
-
-  notice.className =
-    "qr-table-notice";
-
-  notice.textContent =
-    `${tableLabel} identificada automáticamente mediante el código QR.`;
-
-  tableField.appendChild(
-    notice
-  );
-}
-
-/**
- * Elimina avisos anteriores.
- */
-function removeModeNotices() {
-  [
-    "#qr-table-notice",
-    "#admin-mode-notice"
-  ].forEach(
-    (selector) => {
-      const element =
-        document.querySelector(
-          selector
-        );
-
-      if (element) {
-        element.remove();
-      }
-    }
-  );
-}
-
-/* =========================================================
-   MENÚ
-   ========================================================= */
-
-/**
- * Carga los productos.
- *
- * @returns {Promise<void>}
- */
 async function loadMenu() {
-  if (appState.loadingMenu) {
-    return;
-  }
+  state.isLoadingMenu = true;
 
-  appState.loadingMenu =
-    true;
+  renderMenuLoading();
 
   try {
-    const {
-      data,
-      error
-    } =
-      await window.toscanaSupabase
-        .from(
-          "productos"
-        )
-        .select(`
+    const supabaseClient = getSupabaseClient();
+
+    const { data, error } = await supabaseClient
+      .from("productos")
+      .select(`
+        id,
+        nombre,
+        descripcion,
+        precio,
+        imagen_url,
+        categoria_id,
+        activo,
+        disponible,
+        categorias (
           id,
           nombre,
-          descripcion,
-          precio,
-          categoria_id,
-          imagen_url,
-          categorias (
-            id,
-            nombre,
-            orden
-          )
-        `)
-        .eq(
-          "activo",
-          true
+          orden
         )
-        .eq(
-          "disponible",
-          true
-        )
-        .order(
-          "nombre"
-        );
+      `)
+      .eq("activo", true)
+      .eq("disponible", true)
+      .order("nombre", {
+        ascending: true
+      });
 
     if (error) {
-      console.warn(
-        "No se pudo cargar Supabase. Se intentará utilizar el catálogo local.",
-        error
-      );
-
-      await loadFallbackMenu();
-    } else {
-      appState.menu =
-        Array.isArray(
-          data
-        )
-          ? data.map(
-              normalizeSupabaseProduct
-            )
-          : [];
+      throw error;
     }
 
-    buildCategories();
-    renderCategoryNavigation();
+    state.products = normalizeProducts(data || []);
+    state.categories = extractCategories(state.products);
+
+    renderCategoryBar();
     renderMenu();
   } catch (error) {
     console.error(
-      "Error al cargar el menú:",
+      "No se pudo cargar el menú desde Supabase:",
       error
     );
 
-    appState.menu = [];
-    appState.categories = [];
+    await loadFallbackMenu();
+  } finally {
+    state.isLoadingMenu = false;
+  }
+}
+
+async function loadFallbackMenu() {
+  try {
+    const response = await fetch(
+      "./data/menu.json",
+      {
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `No se pudo cargar data/menu.json: ${response.status}`
+      );
+    }
+
+    const fallbackData = await response.json();
+
+    const rawProducts =
+      fallbackData.productos ||
+      fallbackData.products ||
+      [];
+
+    state.products = normalizeProducts(rawProducts);
+    state.categories = extractCategories(state.products);
+
+    renderCategoryBar();
+    renderMenu();
+  } catch (error) {
+    console.error(
+      "No se pudo cargar el menú alternativo:",
+      error
+    );
 
     renderMenuError(
-      error?.message ||
-      "No fue posible cargar el catálogo."
-    );
-
-    throw error;
-  } finally {
-    appState.loadingMenu =
-      false;
-  }
-}
-
-/**
- * Normaliza un producto.
- *
- * @param {object} product
- * @returns {object}
- */
-function normalizeSupabaseProduct(
-  product
-) {
-  return {
-    ...product,
-
-    id:
-      product.id,
-
-    nombre:
-      product.nombre ||
-      "Producto",
-
-    descripcion:
-      product.descripcion ||
-      "",
-
-    precio:
-      Number(
-        product.precio ||
-        0
-      ),
-
-    categoria:
-      product.categorias
-        ?.nombre ||
-      "Otros",
-
-    categoria_orden:
-      Number(
-        product.categorias
-          ?.orden ??
-        999
-      ),
-
-    imagen_url:
-      product.imagen_url ||
-      null
-  };
-}
-
-/**
- * Carga el menú local.
- *
- * @returns {Promise<void>}
- */
-async function loadFallbackMenu() {
-  const response =
-    await fetch(
-      "data/menu.json",
-      {
-        cache:
-          "no-store"
-      }
-    );
-
-  if (!response.ok) {
-    throw new Error(
-      "No fue posible cargar el menú."
+      "No fue posible cargar el menú. " +
+      "Revisa la conexión e intenta nuevamente."
     );
   }
-
-  const fallback =
-    await response.json();
-
-  const products =
-    Array.isArray(
-      fallback.productos
-    )
-      ? fallback.productos
-      : [];
-
-  appState.menu =
-    products.map(
-      (product) => ({
-        ...product,
-
-        precio:
-          Number(
-            product.precio ||
-            0
-          ),
-
-        categoria:
-          product.categoria ||
-          product.categorias
-            ?.nombre ||
-          "Otros",
-
-        categoria_orden:
-          Number(
-            product.categoria_orden ??
-            product.categorias
-              ?.orden ??
-            999
-          ),
-
-        imagen_url:
-          product.imagen_url ||
-          null
-      })
-    );
 }
 
-/**
- * Construye las categorías.
- */
-function buildCategories() {
-  const categoryMap =
-    new Map();
-
-  appState.menu.forEach(
-    (product) => {
-      const categoryName =
+function normalizeProducts(products) {
+  return products
+    .map((product) => {
+      const categoryObject =
+        product.categorias ||
         product.categoria ||
-        "Otros";
+        null;
 
-      const categoryKey =
-        normalizeCategory(
-          categoryName
-        );
+      const categoryName =
+        typeof categoryObject === "string"
+          ? categoryObject
+          : categoryObject?.nombre ||
+            product.categoria_nombre ||
+            "Otros";
 
-      const categoryOrder =
-        Number(
+      const categoryId =
+        product.categoria_id ??
+        categoryObject?.id ??
+        slugify(categoryName);
+
+      return {
+        id: Number(product.id),
+        name: String(
+          product.nombre ||
+          product.name ||
+          "Producto"
+        ),
+
+        description: String(
+          product.descripcion ||
+          product.description ||
+          ""
+        ),
+
+        price: Number(
+          product.precio ??
+          product.price ??
+          0
+        ),
+
+        imageUrl:
+          product.imagen_url ||
+          product.image_url ||
+          product.imagen ||
+          "",
+
+        categoryId: String(categoryId),
+        categoryName: String(categoryName),
+
+        categoryOrder: Number(
+          categoryObject?.orden ??
           product.categoria_orden ??
-          999
-        );
-
-      if (
-        !categoryMap.has(
-          categoryKey
+          9999
         )
-      ) {
-        categoryMap.set(
-          categoryKey,
-          {
-            key:
-              categoryKey,
-            name:
-              categoryName,
-            order:
-              categoryOrder
-          }
-        );
-      }
-    }
-  );
-
-  appState.categories =
-    Array.from(
-      categoryMap.values()
-    ).sort(
-      (
-        firstCategory,
-        secondCategory
-      ) => {
-        if (
-          firstCategory.order !==
-          secondCategory.order
-        ) {
-          return (
-            firstCategory.order -
-            secondCategory.order
-          );
-        }
-
-        return firstCategory
-          .name
-          .localeCompare(
-            secondCategory.name,
-            "es"
-          );
-      }
-    );
-
-  const activeCategoryExists =
-    appState.activeCategory ===
-      "todos" ||
-    appState.categories.some(
-      (category) =>
-        category.key ===
-        appState.activeCategory
-    );
-
-  if (!activeCategoryExists) {
-    appState.activeCategory =
-      "todos";
-  }
+      };
+    })
+    .filter((product) => {
+      return (
+        Number.isFinite(product.id) &&
+        product.id > 0 &&
+        Number.isFinite(product.price) &&
+        product.price >= 0
+      );
+    });
 }
 
-/**
- * Renderiza las categorías.
- */
-function renderCategoryNavigation() {
-  const navigation =
-    document.querySelector(
-      "#category-nav"
-    );
+function extractCategories(products) {
+  const categoryMap = new Map();
 
-  if (!navigation) {
+  products.forEach((product) => {
+    if (!categoryMap.has(product.categoryId)) {
+      categoryMap.set(product.categoryId, {
+        id: product.categoryId,
+        name: product.categoryName,
+        order: product.categoryOrder
+      });
+    }
+  });
+
+  return Array.from(categoryMap.values())
+    .sort((first, second) => {
+      if (first.order !== second.order) {
+        return first.order - second.order;
+      }
+
+      return first.name.localeCompare(
+        second.name,
+        "es"
+      );
+    });
+}
+
+/* ============================================================
+   10. CATEGORÍAS Y BÚSQUEDA
+   ============================================================ */
+
+function renderCategoryBar() {
+  if (!elements.categoryBar) {
     return;
   }
 
-  const allButton =
-    createCategoryButton(
-      {
-        key:
-          "todos",
-        name:
-          "Todos",
-        icon:
-          "▦"
-      }
-    );
+  const categoryButtons = state.categories
+    .map((category) => {
+      const activeClass =
+        state.selectedCategory === category.id
+          ? " active"
+          : "";
 
-  const categoryButtons =
-    appState.categories
-      .map(
-        (category) =>
-          createCategoryButton(
-            {
-              key:
-                category.key,
-              name:
-                category.name,
-              icon:
-                ""
-            }
-          )
-      )
-      .join("");
+      return `
+        <button
+          class="category-filter${activeClass}"
+          type="button"
+          data-category-id="${escapeAttribute(category.id)}"
+        >
+          ${escapeHtml(category.name)}
+        </button>
+      `;
+    })
+    .join("");
 
-  navigation.innerHTML =
-    allButton +
-    categoryButtons;
-
-  navigation
-    .querySelectorAll(
-      "[data-category-filter]"
-    )
-    .forEach(
-      (button) => {
-        button.addEventListener(
-          "click",
-          () => {
-            appState.activeCategory =
-              button.dataset
-                .categoryFilter ||
-              "todos";
-
-            renderCategoryNavigation();
-            renderMenu();
-
-            window.requestAnimationFrame(
-              scrollActiveCategoryIntoView
-            );
-          }
-        );
-      }
-    );
-}
-
-/**
- * Genera botón de categoría.
- *
- * @param {object} options
- * @returns {string}
- */
-function createCategoryButton({
-  key,
-  name,
-  icon
-}) {
-  const isActive =
-    appState.activeCategory ===
-    key;
-
-  const iconHTML =
-    icon
-      ? `
-        <span aria-hidden="true">
-          ${escapeHTML(icon)}
-        </span>
-      `
+  const allActiveClass =
+    state.selectedCategory === "all"
+      ? " active"
       : "";
 
-  return `
+  elements.categoryBar.innerHTML = `
     <button
+      class="category-filter${allActiveClass}"
       type="button"
-      class="category-filter ${
-        isActive
-          ? "active"
-          : ""
-      }"
-      data-category-filter="${escapeHTML(
-        key
-      )}"
-      aria-pressed="${
-        isActive
-          ? "true"
-          : "false"
-      }"
+      data-category-id="all"
     >
-      ${iconHTML}
-      ${escapeHTML(name)}
+      Todos
     </button>
+
+    ${categoryButtons}
   `;
 }
 
-/**
- * Centra el filtro activo.
- */
-function scrollActiveCategoryIntoView() {
-  const activeButton =
-    document.querySelector(
-      ".category-filter.active"
-    );
+function handleSearchInput(event) {
+  state.searchTerm =
+    String(event.target.value || "")
+      .trim()
+      .toLocaleLowerCase("es");
 
-  activeButton?.scrollIntoView(
-    {
-      behavior:
-        "smooth",
-      block:
-        "nearest",
-      inline:
-        "center"
-    }
-  );
+  renderMenu();
 }
 
-/**
- * Renderiza productos filtrados.
- */
-function renderMenu() {
-  const container =
-    document.querySelector(
-      "#menu-container"
-    );
+function handleCategoryClick(event) {
+  const button = event.target.closest(
+    "[data-category-id]"
+  );
 
-  const searchInput =
-    document.querySelector(
-      "#search"
-    );
-
-  const resultsLabel =
-    document.querySelector(
-      "#menu-results-label"
-    );
-
-  if (!container) {
+  if (!button) {
     return;
   }
 
-  const query =
-    normalizeSearchText(
-      searchInput?.value ||
-      ""
+  state.selectedCategory =
+    String(button.dataset.categoryId || "all");
+
+  renderCategoryBar();
+  renderMenu();
+}
+
+function getFilteredProducts() {
+  return state.products.filter((product) => {
+    const matchesCategory =
+      state.selectedCategory === "all" ||
+      product.categoryId === state.selectedCategory;
+
+    const searchableText = normalizeText(
+      [
+        product.name,
+        product.description,
+        product.categoryName
+      ].join(" ")
     );
 
-  const filteredProducts =
-    appState.menu.filter(
-      (product) => {
-        const categoryName =
-          product.categoria ||
-          "Otros";
+    const matchesSearch =
+      !state.searchTerm ||
+      searchableText.includes(
+        normalizeText(state.searchTerm)
+      );
 
-        const categoryKey =
-          normalizeCategory(
-            categoryName
-          );
+    return matchesCategory && matchesSearch;
+  });
+}
 
-        const matchesCategory =
-          appState.activeCategory ===
-            "todos" ||
-          categoryKey ===
-            appState.activeCategory;
+/* ============================================================
+   11. RENDERIZADO DEL MENÚ
+   ============================================================ */
 
-        const searchableText =
-          normalizeSearchText(`
-            ${product.nombre || ""}
-            ${product.descripcion || ""}
-            ${categoryName}
-          `);
+function renderMenuLoading() {
+  if (!elements.menuContainer) {
+    return;
+  }
 
-        const matchesSearch =
-          !query ||
-          searchableText.includes(
-            query
-          );
+  elements.menuContainer.innerHTML = `
+    <div class="loading-state">
+      <div
+        class="loading-spinner"
+        aria-hidden="true"
+      ></div>
 
-        return (
-          matchesCategory &&
-          matchesSearch
-        );
-      }
-    );
+      <p>
+        Cargando menú...
+      </p>
+    </div>
+  `;
 
-  updateResultsLabel(
-    filteredProducts.length,
-    resultsLabel
-  );
+  if (elements.menuResultsCount) {
+    elements.menuResultsCount.textContent =
+      "Cargando menú...";
+  }
+}
 
-  if (
-    filteredProducts.length ===
-    0
-  ) {
-    container.innerHTML = `
-      <div class="menu-empty">
+function renderMenuError(message) {
+  if (!elements.menuContainer) {
+    return;
+  }
+
+  elements.menuContainer.innerHTML = `
+    <div class="menu-empty-state">
+      <strong>
+        No se pudo cargar el menú
+      </strong>
+
+      <p>
+        ${escapeHtml(message)}
+      </p>
+    </div>
+  `;
+
+  if (elements.menuResultsCount) {
+    elements.menuResultsCount.textContent =
+      "Menú no disponible";
+  }
+}
+
+function renderMenu() {
+  if (!elements.menuContainer) {
+    return;
+  }
+
+  const filteredProducts = getFilteredProducts();
+
+  updateMenuResultsInformation(filteredProducts);
+
+  if (filteredProducts.length === 0) {
+    elements.menuContainer.innerHTML = `
+      <div class="menu-empty-state">
         <strong>
-          No se encontraron productos.
+          No encontramos productos
         </strong>
 
         <p>
@@ -1424,976 +931,1255 @@ function renderMenu() {
     return;
   }
 
-  container.innerHTML = `
-    <div class="products-grid">
-      ${filteredProducts
-        .map(
-          createProductCard
-        )
-        .join("")}
-    </div>
-  `;
+  const groupedProducts = groupProductsByCategory(
+    filteredProducts
+  );
 
-  attachProductEvents(
-    container
+  elements.menuContainer.innerHTML =
+    groupedProducts
+      .map(([categoryName, products]) => {
+        return `
+          <section class="menu-category-section">
+            <header class="menu-category-header">
+              <h3>
+                ${escapeHtml(categoryName)}
+              </h3>
+
+              <span>
+                ${products.length}
+                ${products.length === 1
+                  ? "producto"
+                  : "productos"}
+              </span>
+            </header>
+
+            <div class="product-grid">
+              ${products
+                .map(renderProductCard)
+                .join("")}
+            </div>
+          </section>
+        `;
+      })
+      .join("");
+}
+
+function updateMenuResultsInformation(products) {
+  const activeCategory =
+    state.selectedCategory === "all"
+      ? null
+      : state.categories.find(
+          (category) =>
+            category.id === state.selectedCategory
+        );
+
+  if (elements.menuResultsTitle) {
+    if (state.searchTerm) {
+      elements.menuResultsTitle.textContent =
+        `Resultados para “${state.searchTerm}”`;
+    } else if (activeCategory) {
+      elements.menuResultsTitle.textContent =
+        activeCategory.name;
+    } else {
+      elements.menuResultsTitle.textContent =
+        "Todos los productos";
+    }
+  }
+
+  if (elements.menuResultsCount) {
+    elements.menuResultsCount.textContent =
+      products.length === 1
+        ? "1 producto"
+        : `${products.length} productos`;
+  }
+}
+
+function groupProductsByCategory(products) {
+  const groups = new Map();
+
+  products.forEach((product) => {
+    if (!groups.has(product.categoryName)) {
+      groups.set(product.categoryName, []);
+    }
+
+    groups.get(product.categoryName).push(product);
+  });
+
+  return Array.from(groups.entries()).sort(
+    ([firstCategory], [secondCategory]) => {
+      const firstData = state.categories.find(
+        (category) =>
+          category.name === firstCategory
+      );
+
+      const secondData = state.categories.find(
+        (category) =>
+          category.name === secondCategory
+      );
+
+      const firstOrder = firstData?.order ?? 9999;
+      const secondOrder = secondData?.order ?? 9999;
+
+      if (firstOrder !== secondOrder) {
+        return firstOrder - secondOrder;
+      }
+
+      return firstCategory.localeCompare(
+        secondCategory,
+        "es"
+      );
+    }
   );
 }
 
-/**
- * Actualiza el contador de resultados.
- *
- * @param {number} count
- * @param {HTMLElement|null} element
- */
-function updateResultsLabel(
-  count,
-  element
-) {
-  if (!element) {
-    return;
-  }
+function renderProductCard(product) {
+  const cartItem = state.cart.find(
+    (item) =>
+      Number(item.productId) === Number(product.id)
+  );
 
-  const categoryName =
-    appState.activeCategory ===
-      "todos"
-      ? "Todos los productos"
-      : appState.categories.find(
-          (category) =>
-            category.key ===
-            appState.activeCategory
-        )?.name ||
-        "Productos";
+  const quantity = cartItem?.quantity || 0;
 
-  const productText =
-    count === 1
-      ? "1 producto"
-      : `${count} productos`;
+  const imageContent = product.imageUrl
+    ? `
+      <img
+        src="${escapeAttribute(product.imageUrl)}"
+        alt="${escapeAttribute(product.name)}"
+        loading="lazy"
+        onerror="this.closest('.product-image')?.classList.add('product-image-error'); this.remove();"
+      >
+    `
+    : `
+      <span
+        class="product-image-placeholder"
+        aria-hidden="true"
+      >
+        🍽️
+      </span>
+    `;
 
-  element.textContent =
-    `${categoryName} · ${productText}`;
-}
-
-/**
- * Genera una tarjeta.
- *
- * @param {object} product
- * @returns {string}
- */
-function createProductCard(
-  product
-) {
-  const imageHTML =
-    product.imagen_url
+  const quantityIndicator =
+    quantity > 0
       ? `
-        <div class="product-card-image-wrapper">
-          <img
-            class="product-card-image"
-            src="${escapeHTML(
-              product.imagen_url
-            )}"
-            alt="${escapeHTML(
-              product.nombre
-            )}"
-            loading="lazy"
-            decoding="async"
-            onerror="this.parentElement.classList.add('product-card-image-empty'); this.remove();"
-          >
-        </div>
+        <span class="product-cart-quantity">
+          ${quantity} en el pedido
+        </span>
       `
-      : `
-        <div
-          class="product-card-image-wrapper product-card-image-empty"
-          aria-hidden="true"
-        >
-          <span>🔥</span>
-        </div>
-      `;
+      : "";
 
   return `
     <article class="product-card">
-      ${imageHTML}
-
-      <div class="product-card-content">
-        <span class="product-card-category">
-          ${escapeHTML(
-            product.categoria ||
-            "Otros"
-          )}
-        </span>
-
-        <h3>
-          ${escapeHTML(
-            product.nombre
-          )}
-        </h3>
-
-        <p>
-          ${escapeHTML(
-            product.descripcion ||
-            "Preparado al momento."
-          )}
-        </p>
+      <div class="product-image">
+        ${imageContent}
       </div>
 
-      <div class="product-card-footer">
-        <strong>
-          ${money(
-            product.precio
-          )}
-        </strong>
+      <div class="product-card-content">
+        <div>
+          <p class="product-category">
+            ${escapeHtml(product.categoryName)}
+          </p>
 
-        <button
-          type="button"
-          data-add-product="${escapeHTML(
-            product.id
-          )}"
-        >
-          Agregar
-        </button>
+          <h4>
+            ${escapeHtml(product.name)}
+          </h4>
+
+          ${
+            product.description
+              ? `
+                <p class="product-description">
+                  ${escapeHtml(product.description)}
+                </p>
+              `
+              : ""
+          }
+        </div>
+
+        <div class="product-card-footer">
+          <div>
+            <strong class="product-price">
+              ${formatMoney(product.price)}
+            </strong>
+
+            ${quantityIndicator}
+          </div>
+
+          <button
+            class="add-product-button"
+            type="button"
+            data-add-product="${product.id}"
+            aria-label="Agregar ${escapeAttribute(product.name)}"
+          >
+            Agregar
+          </button>
+        </div>
       </div>
     </article>
   `;
 }
 
-/**
- * Registra eventos de productos.
- *
- * @param {HTMLElement} container
- */
-function attachProductEvents(
-  container
-) {
-  container
-    .querySelectorAll(
-      "[data-add-product]"
-    )
-    .forEach(
-      (button) => {
-        button.addEventListener(
-          "click",
-          () => {
-            addProduct(
-              button.dataset
-                .addProduct
-            );
-
-            animateAddButton(
-              button
-            );
-          }
-        );
-      }
-    );
-}
-
-/**
- * Anima el botón Agregar.
- *
- * @param {HTMLButtonElement} button
- */
-function animateAddButton(
-  button
-) {
-  const originalText =
-    button.textContent;
-
-  button.textContent =
-    "Agregado";
-
-  button.disabled =
-    true;
-
-  window.setTimeout(
-    () => {
-      button.textContent =
-        originalText;
-
-      button.disabled =
-        false;
-    },
-    500
+function handleMenuClick(event) {
+  const addButton = event.target.closest(
+    "[data-add-product]"
   );
-}
 
-/**
- * Renderiza error del menú.
- *
- * @param {string} message
- */
-function renderMenuError(
-  message
-) {
-  const container =
-    document.querySelector(
-      "#menu-container"
-    );
-
-  if (!container) {
+  if (!addButton) {
     return;
   }
 
-  container.innerHTML = `
-    <div class="menu-empty">
-      <strong>
-        No fue posible cargar el menú.
-      </strong>
+  const productId = Number(
+    addButton.dataset.addProduct
+  );
 
-      <p>
-        ${escapeHTML(message)}
-      </p>
-    </div>
-  `;
+  addProductToCart(productId);
 }
 
-/* =========================================================
-   MESAS
-   ========================================================= */
+/* ============================================================
+   12. CARGA DE MESAS
+   ============================================================ */
 
-/**
- * Carga mesas activas.
- *
- * @returns {Promise<void>}
- */
 async function loadTables() {
-  if (appState.loadingTables) {
-    return;
-  }
-
-  appState.loadingTables =
-    true;
-
   try {
-    const {
-      data,
-      error
-    } =
-      await window.toscanaSupabase
-        .from(
-          "mesas"
-        )
-        .select(
-          "id,numero,nombre,capacidad"
-        )
-        .eq(
-          "activa",
-          true
-        )
-        .order(
-          "numero"
-        );
+    const supabaseClient = getSupabaseClient();
+
+    const { data, error } = await supabaseClient
+      .from("mesas")
+      .select(`
+        id,
+        numero,
+        nombre,
+        activa
+      `)
+      .eq("activa", true)
+      .order("numero", {
+        ascending: true
+      });
 
     if (error) {
-      throw new Error(
-        "No fue posible cargar las mesas."
-      );
+      throw error;
     }
 
-    appState.tables =
-      Array.isArray(
-        data
-      )
-        ? data
-        : [];
+    state.tables = Array.isArray(data)
+      ? data
+      : [];
 
     renderTableOptions();
-  } finally {
-    appState.loadingTables =
-      false;
+  } catch (error) {
+    console.error(
+      "No se pudieron cargar las mesas:",
+      error
+    );
+
+    state.tables = [];
+    renderTableOptions();
   }
 }
 
-/**
- * Renderiza las mesas.
- */
 function renderTableOptions() {
-  const tableSelect =
-    document.querySelector(
-      "#table-select"
-    );
-
-  if (!tableSelect) {
+  if (!elements.tableSelect) {
     return;
   }
 
-  if (
-    appState.tables.length ===
-    0
-  ) {
-    tableSelect.innerHTML = `
-      <option value="">
-        No hay mesas disponibles
-      </option>
-    `;
+  const options = state.tables
+    .map((table) => {
+      const tableName =
+        table.nombre ||
+        `Mesa ${table.numero}`;
 
-    return;
-  }
+      return `
+        <option value="${escapeAttribute(table.id)}">
+          ${escapeHtml(tableName)}
+        </option>
+      `;
+    })
+    .join("");
 
-  tableSelect.innerHTML = `
+  elements.tableSelect.innerHTML = `
     <option value="">
       Selecciona una mesa
     </option>
 
-    ${appState.tables
-      .map(
-        (table) => {
-          const label =
-            table.nombre ||
-            `Mesa ${table.numero}`;
-
-          return `
-            <option value="${escapeHTML(
-              table.id
-            )}">
-              ${escapeHTML(label)}
-            </option>
-          `;
-        }
-      )
-      .join("")}
+    ${options}
   `;
+
+  applyQrTableSelection();
 }
 
-/* =========================================================
-   CARRITO
-   ========================================================= */
+function resolveTableFromUrl() {
+  const urlParameters =
+    new URLSearchParams(window.location.search);
 
-/**
- * Agrega un producto.
- *
- * @param {string|number} productId
- */
-function addProduct(
-  productId
-) {
-  const product =
-    appState.menu.find(
-      (item) =>
-        String(item.id) ===
-        String(productId)
-    );
+  const rawTableId =
+    urlParameters.get("mesa") ||
+    urlParameters.get("table") ||
+    urlParameters.get("mesa_id");
+
+  if (!rawTableId) {
+    state.qrTableId = null;
+    return;
+  }
+
+  const tableId = Number(rawTableId);
+
+  if (
+    Number.isFinite(tableId) &&
+    tableId > 0
+  ) {
+    state.qrTableId = tableId;
+  }
+}
+
+function applyQrTableSelection() {
+  if (
+    !state.qrTableId ||
+    !elements.tableSelect
+  ) {
+    return;
+  }
+
+  const matchingTable = state.tables.find(
+    (table) =>
+      Number(table.id) === Number(state.qrTableId)
+  );
+
+  if (!matchingTable) {
+    return;
+  }
+
+  elements.orderType.value = ORDER_TYPES.table;
+  elements.tableSelect.value = String(
+    matchingTable.id
+  );
+
+  elements.tableSelect.disabled = true;
+
+  if (elements.qrTableNotice) {
+    elements.qrTableNotice.hidden = false;
+  }
+
+  handleOrderTypeChange();
+}
+
+/* ============================================================
+   13. CARRITO
+   ============================================================ */
+
+function addProductToCart(productId) {
+  const product = state.products.find(
+    (candidate) =>
+      Number(candidate.id) === Number(productId)
+  );
 
   if (!product) {
     return;
   }
 
-  const existingItem =
-    appState.cart.find(
-      (item) =>
-        String(
-          item.producto_id
-        ) ===
-        String(productId)
-    );
+  const existingItem = state.cart.find(
+    (item) =>
+      Number(item.productId) === Number(productId)
+  );
 
   if (existingItem) {
-    existingItem.cantidad +=
-      1;
+    existingItem.quantity += 1;
   } else {
-    appState.cart.push({
-      producto_id:
-        product.id,
-
-      nombre:
-        product.nombre,
-
-      precio:
-        Number(
-          product.precio ||
-          0
-        ),
-
-      cantidad:
-        1,
-
-      observaciones:
-        ""
+    state.cart.push({
+      productId: product.id,
+      name: product.name,
+      price: product.price,
+      quantity: 1,
+      notes: ""
     });
   }
 
-  saveCart();
+  persistCart();
   renderCart();
+  renderMenu();
+
+  brieflyAnimateCartButtons();
 }
 
-/**
- * Modifica cantidad.
- *
- * @param {string|number} productId
- * @param {number} variation
- */
-function changeQuantity(
-  productId,
-  variation
-) {
-  const item =
-    appState.cart.find(
-      (product) =>
-        String(
-          product.producto_id
-        ) ===
-        String(productId)
-    );
+function changeCartQuantity(productId, change) {
+  const item = state.cart.find(
+    (candidate) =>
+      Number(candidate.productId) === Number(productId)
+  );
 
   if (!item) {
     return;
   }
 
-  item.cantidad +=
-    variation;
+  item.quantity += change;
 
-  if (item.cantidad <= 0) {
-    appState.cart =
-      appState.cart.filter(
-        (product) =>
-          String(
-            product.producto_id
-          ) !==
-          String(productId)
-      );
+  if (item.quantity <= 0) {
+    state.cart = state.cart.filter(
+      (candidate) =>
+        Number(candidate.productId) !==
+        Number(productId)
+    );
   }
 
-  saveCart();
+  persistCart();
   renderCart();
+  renderMenu();
 }
 
-/**
- * Elimina un producto.
- *
- * @param {string|number} productId
- */
-function removeCartItem(
-  productId
+function removeCartItem(productId) {
+  state.cart = state.cart.filter(
+    (item) =>
+      Number(item.productId) !==
+      Number(productId)
+  );
+
+  persistCart();
+  renderCart();
+  renderMenu();
+}
+
+function updateCartItemNotes(
+  productId,
+  notes
 ) {
-  appState.cart =
-    appState.cart.filter(
-      (product) =>
-        String(
-          product.producto_id
-        ) !==
-        String(productId)
-    );
+  const item = state.cart.find(
+    (candidate) =>
+      Number(candidate.productId) ===
+      Number(productId)
+  );
 
-  saveCart();
-  renderCart();
-}
-
-/**
- * Renderiza el carrito.
- */
-function renderCart() {
-  const cartContainer =
-    document.querySelector(
-      "#cart-items"
-    );
-
-  const emptyState =
-    document.querySelector(
-      "#cart-empty"
-    );
-
-  if (
-    !cartContainer ||
-    !emptyState
-  ) {
+  if (!item) {
     return;
   }
 
-  emptyState.hidden =
-    appState.cart.length >
-    0;
+  item.notes = String(notes || "")
+    .slice(0, 300);
 
-  if (
-    appState.cart.length ===
-    0
-  ) {
-    cartContainer.innerHTML =
-      "";
-  } else {
-    cartContainer.innerHTML =
-      appState.cart
-        .map(
-          createCartItem
-        )
-        .join("");
-
-    attachCartEvents(
-      cartContainer
-    );
-  }
-
-  renderCartTotals();
+  persistCart();
 }
 
-/**
- * Genera un producto del carrito.
- *
- * @param {object} item
- * @returns {string}
- */
-function createCartItem(
-  item
-) {
-  const subtotal =
-    Number(
-      item.precio ||
-      0
-    ) *
-    Number(
-      item.cantidad ||
-      0
-    );
+function renderCart() {
+  renderCartItems();
+  renderCartTotals();
+  updateCartCounters();
+  updateMobileCartVisibility();
+}
 
-  return `
-    <article class="cart-item">
-      <div class="cart-item-heading">
-        <strong>
-          ${escapeHTML(
-            item.nombre
-          )}
-        </strong>
+function renderCartItems() {
+  if (!elements.cartItems) {
+    return;
+  }
 
-        <span>
-          ${money(subtotal)}
-        </span>
-      </div>
-
-      <div class="cart-item-footer">
-        <div class="cart-item-controls">
-          <button
-            type="button"
-            data-minus="${escapeHTML(
-              item.producto_id
-            )}"
-          >
-            −
-          </button>
-
-          <strong>
-            ${Number(
-              item.cantidad
-            )}
-          </strong>
-
-          <button
-            type="button"
-            data-plus="${escapeHTML(
-              item.producto_id
-            )}"
-          >
-            +
-          </button>
+  if (state.cart.length === 0) {
+    elements.cartItems.innerHTML = `
+      <div class="cart-empty">
+        <div
+          class="cart-empty-icon"
+          aria-hidden="true"
+        >
+          🛒
         </div>
 
-        <button
-          type="button"
-          class="remove-cart-item"
-          data-remove-item="${escapeHTML(
-            item.producto_id
-          )}"
-        >
-          Eliminar
-        </button>
+        <strong>
+          Tu pedido está vacío
+        </strong>
+
+        <p>
+          Agrega productos desde el menú.
+        </p>
       </div>
-    </article>
-  `;
+    `;
+
+    if (elements.cartItemSummary) {
+      elements.cartItemSummary.textContent =
+        "Aún no has agregado productos.";
+    }
+
+    return;
+  }
+
+  elements.cartItems.innerHTML =
+    state.cart
+      .map((item) => {
+        const itemSubtotal =
+          item.price * item.quantity;
+
+        return `
+          <article class="cart-item">
+            <div class="cart-item-main">
+              <div>
+                <h3>
+                  ${escapeHtml(item.name)}
+                </h3>
+
+                <p>
+                  ${formatMoney(item.price)} cada uno
+                </p>
+              </div>
+
+              <strong>
+                ${formatMoney(itemSubtotal)}
+              </strong>
+            </div>
+
+            <div class="cart-item-controls">
+              <div class="quantity-control">
+                <button
+                  type="button"
+                  data-cart-minus="${item.productId}"
+                  aria-label="Reducir cantidad de ${escapeAttribute(item.name)}"
+                >
+                  −
+                </button>
+
+                <strong>
+                  ${item.quantity}
+                </strong>
+
+                <button
+                  type="button"
+                  data-cart-plus="${item.productId}"
+                  aria-label="Aumentar cantidad de ${escapeAttribute(item.name)}"
+                >
+                  +
+                </button>
+              </div>
+
+              <button
+                class="remove-cart-item"
+                type="button"
+                data-cart-remove="${item.productId}"
+              >
+                Eliminar
+              </button>
+            </div>
+
+            <label class="cart-item-notes">
+              <span>
+                Indicaciones para este producto
+              </span>
+
+              <textarea
+                data-cart-notes="${item.productId}"
+                maxlength="300"
+                placeholder="Ejemplo: sin cebolla, término medio..."
+              >${escapeHtml(item.notes || "")}</textarea>
+            </label>
+          </article>
+        `;
+      })
+      .join("");
+
+  const totalUnits = getCartUnitCount();
+
+  if (elements.cartItemSummary) {
+    elements.cartItemSummary.textContent =
+      totalUnits === 1
+        ? "1 producto agregado."
+        : `${totalUnits} productos agregados.`;
+  }
 }
 
-/**
- * Registra eventos del carrito.
- *
- * @param {HTMLElement} container
- */
-function attachCartEvents(
-  container
-) {
-  container
-    .querySelectorAll(
-      "[data-minus]"
-    )
-    .forEach(
-      (button) => {
-        button.addEventListener(
-          "click",
-          () => {
-            changeQuantity(
-              button.dataset.minus,
-              -1
-            );
-          }
-        );
-      }
+function handleCartClick(event) {
+  const minusButton = event.target.closest(
+    "[data-cart-minus]"
+  );
+
+  if (minusButton) {
+    changeCartQuantity(
+      Number(minusButton.dataset.cartMinus),
+      -1
     );
 
-  container
-    .querySelectorAll(
-      "[data-plus]"
-    )
-    .forEach(
-      (button) => {
-        button.addEventListener(
-          "click",
-          () => {
-            changeQuantity(
-              button.dataset.plus,
-              1
-            );
-          }
-        );
-      }
+    return;
+  }
+
+  const plusButton = event.target.closest(
+    "[data-cart-plus]"
+  );
+
+  if (plusButton) {
+    changeCartQuantity(
+      Number(plusButton.dataset.cartPlus),
+      1
     );
 
-  container
-    .querySelectorAll(
-      "[data-remove-item]"
-    )
-    .forEach(
-      (button) => {
-        button.addEventListener(
-          "click",
-          () => {
-            removeCartItem(
-              button.dataset
-                .removeItem
-            );
-          }
-        );
-      }
+    return;
+  }
+
+  const removeButton = event.target.closest(
+    "[data-cart-remove]"
+  );
+
+  if (removeButton) {
+    removeCartItem(
+      Number(removeButton.dataset.cartRemove)
     );
+  }
 }
 
-/**
- * Renderiza subtotal, desechables y total.
- */
-function renderCartTotals() {
-  const totals =
-    calculateCartTotals();
+function handleCartInput(event) {
+  const notesInput = event.target.closest(
+    "[data-cart-notes]"
+  );
 
+  if (!notesInput) {
+    return;
+  }
+
+  updateCartItemNotes(
+    Number(notesInput.dataset.cartNotes),
+    notesInput.value
+  );
+}
+
+/* ============================================================
+   14. CÁLCULOS DEL PEDIDO
+   ============================================================ */
+
+function calculateCartSummary() {
   const orderType =
-    getCurrentOrderType();
+    elements.orderType?.value ||
+    ORDER_TYPES.table;
 
-  const disposables =
-    requiresDisposables(
-      orderType
-    )
-      ? DISPOSABLES_COST
+  const deliveryZone =
+    elements.deliveryZone?.value ||
+    "";
+
+  const subtotal = state.cart.reduce(
+    (total, item) => {
+      return total +
+        Number(item.price) *
+        Number(item.quantity);
+    },
+    0
+  );
+
+  const disposableFee =
+    orderType === ORDER_TYPES.takeaway ||
+    orderType === ORDER_TYPES.delivery
+      ? FEES.disposable
       : 0;
 
+  const deliveryFee =
+    orderType === ORDER_TYPES.delivery &&
+    deliveryZone === DELIVERY_ZONES.urban
+      ? FEES.urbanDelivery
+      : 0;
+
+  const deliveryPending =
+    orderType === ORDER_TYPES.delivery &&
+    deliveryZone === DELIVERY_ZONES.outside;
+
   const total =
-    totals.amount +
-    disposables;
+    subtotal +
+    disposableFee +
+    deliveryFee;
 
-  setText(
-    "#cart-count",
-    totals.quantity
-  );
+  return {
+    subtotal: roundMoney(subtotal),
+    disposableFee: roundMoney(disposableFee),
+    deliveryFee: roundMoney(deliveryFee),
+    deliveryPending,
+    total: roundMoney(total)
+  };
+}
 
-  setText(
-    "#top-cart-count",
-    totals.quantity
-  );
+function renderCartTotals() {
+  const summary = calculateCartSummary();
 
-  setText(
-    "#mobile-cart-count",
-    totals.quantity
-  );
+  if (elements.cartSubtotal) {
+    elements.cartSubtotal.textContent =
+      formatMoney(summary.subtotal);
+  }
 
-  setText(
-    "#cart-subtotal",
-    money(
-      totals.amount
-    )
-  );
+  if (elements.cartDisposableFee) {
+    elements.cartDisposableFee.textContent =
+      formatMoney(summary.disposableFee);
+  }
 
-  setText(
-    "#cart-disposables",
-    money(
-      disposables
-    )
-  );
+  if (elements.disposableSummaryRow) {
+    elements.disposableSummaryRow.hidden =
+      summary.disposableFee <= 0;
+  }
 
-  setText(
-    "#cart-total",
-    money(total)
-  );
+  if (elements.cartDeliveryFee) {
+    elements.cartDeliveryFee.textContent =
+      formatMoney(summary.deliveryFee);
+  }
 
-  const disposablesRow =
-    document.querySelector(
-      "#disposables-row"
-    );
+  if (elements.deliverySummaryRow) {
+    elements.deliverySummaryRow.hidden =
+      summary.deliveryFee <= 0;
+  }
 
-  if (disposablesRow) {
-    disposablesRow.hidden =
-      disposables <= 0;
+  if (elements.pendingDeliverySummaryRow) {
+    elements.pendingDeliverySummaryRow.hidden =
+      !summary.deliveryPending;
+  }
+
+  if (elements.cartTotalLabel) {
+    elements.cartTotalLabel.textContent =
+      summary.deliveryPending
+        ? "Total preliminar"
+        : "Total";
+  }
+
+  if (elements.cartTotal) {
+    elements.cartTotal.textContent =
+      formatMoney(summary.total);
+  }
+
+  if (elements.preliminaryTotalNotice) {
+    elements.preliminaryTotalNotice.hidden =
+      !summary.deliveryPending;
+  }
+
+  if (elements.mobileCartTotal) {
+    elements.mobileCartTotal.textContent =
+      formatMoney(summary.total);
   }
 }
 
-/**
- * Calcula los totales.
- *
- * @returns {{
- *   amount:number,
- *   quantity:number
- * }}
- */
-function calculateCartTotals() {
-  return appState.cart.reduce(
-    (totals, item) => {
-      const price =
-        Number(
-          item.precio ||
-          0
-        );
+function updateCartCounters() {
+  const unitCount = getCartUnitCount();
 
-      const quantity =
-        Number(
-          item.cantidad ||
-          0
-        );
-
-      totals.amount +=
-        price *
-        quantity;
-
-      totals.quantity +=
-        quantity;
-
-      return totals;
-    },
-    {
-      amount: 0,
-      quantity: 0
-    }
-  );
-}
-
-/**
- * Devuelve el tipo de pedido seleccionado.
- *
- * @returns {string}
- */
-function getCurrentOrderType() {
-  if (
-    appState.qrTable &&
-    !appState.adminMode
-  ) {
-    return "mesa";
+  if (elements.headerCartCount) {
+    elements.headerCartCount.textContent =
+      String(unitCount);
   }
 
-  return String(
-    document.querySelector(
-      "#order-type"
-    )?.value ||
-    "mesa"
-  );
-}
-
-/**
- * Indica si aplica desechables.
- *
- * @param {string} orderType
- * @returns {boolean}
- */
-function requiresDisposables(
-  orderType
-) {
-  return [
-    "para_llevar",
-    "delivery"
-  ].includes(
-    orderType
-  );
-}
-
-/**
- * Vacía el carrito.
- */
-function clearCart() {
-  appState.cart = [];
-  saveCart();
-  renderCart();
-}
-
-/**
- * Guarda el carrito.
- */
-function saveCart() {
-  try {
-    localStorage.setItem(
-      "toscana_cart",
-      JSON.stringify(
-        appState.cart
-      )
-    );
-  } catch (error) {
-    console.warn(
-      "No fue posible guardar el carrito:",
-      error
-    );
+  if (elements.mobileCartCount) {
+    elements.mobileCartCount.textContent =
+      String(unitCount);
   }
 }
 
-/**
- * Recupera el carrito.
- */
-function restoreCart() {
-  try {
-    const storedValue =
-      localStorage.getItem(
-        "toscana_cart"
-      );
+function getCartUnitCount() {
+  return state.cart.reduce(
+    (total, item) =>
+      total + Number(item.quantity),
+    0
+  );
+}
 
-    if (!storedValue) {
-      appState.cart = [];
+/* ============================================================
+   15. APERTURA Y CIERRE DEL CARRITO
+   ============================================================ */
+
+function openCart() {
+  if (!elements.cartDrawer) {
+    return;
+  }
+
+  elements.cartDrawer.classList.add("open");
+  elements.cartDrawer.setAttribute(
+    "aria-hidden",
+    "false"
+  );
+
+  if (elements.cartOverlay) {
+    elements.cartOverlay.hidden = false;
+  }
+
+  document.body.classList.add("cart-open");
+
+  clearOrderMessage();
+  handleOrderTypeChange();
+}
+
+function closeCart() {
+  if (!elements.cartDrawer) {
+    return;
+  }
+
+  elements.cartDrawer.classList.remove("open");
+  elements.cartDrawer.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  if (elements.cartOverlay) {
+    elements.cartOverlay.hidden = true;
+  }
+
+  document.body.classList.remove("cart-open");
+}
+
+function updateMobileCartVisibility() {
+  if (!elements.mobileCartButton) {
+    return;
+  }
+
+  const menuIsVisible =
+    elements.menuView &&
+    !elements.menuView.hidden;
+
+  elements.mobileCartButton.hidden =
+    !menuIsVisible ||
+    state.cart.length === 0;
+}
+
+function brieflyAnimateCartButtons() {
+  const buttons = [
+    elements.openCartButton,
+    elements.mobileCartButton
+  ];
+
+  buttons.forEach((button) => {
+    if (!button) {
       return;
     }
 
-    const storedCart =
-      JSON.parse(
-        storedValue
+    button.classList.remove("cart-button-pulse");
+
+    requestAnimationFrame(() => {
+      button.classList.add(
+        "cart-button-pulse"
       );
 
-    appState.cart =
-      Array.isArray(
-        storedCart
-      )
-        ? storedCart
-        : [];
-  } catch {
-    appState.cart = [];
-  }
+      window.setTimeout(() => {
+        button.classList.remove(
+          "cart-button-pulse"
+        );
+      }, 450);
+    });
+  });
 }
 
-/* =========================================================
-   FORMULARIO
-   ========================================================= */
+/* ============================================================
+   16. TIPO DE PEDIDO Y DELIVERY
+   ============================================================ */
 
-/**
- * Muestra u oculta campos.
- */
-function toggleOrderFields() {
+function handleOrderTypeChange() {
   const orderType =
-    document.querySelector(
-      "#order-type"
-    );
+    elements.orderType?.value ||
+    ORDER_TYPES.table;
 
-  const tableField =
-    document.querySelector(
-      "#table-field"
-    );
+  const isTable =
+    orderType === ORDER_TYPES.table;
 
-  const addressField =
-    document.querySelector(
-      "#address-field"
-    );
+  const isDelivery =
+    orderType === ORDER_TYPES.delivery;
 
-  if (
-    !orderType ||
-    !tableField ||
-    !addressField
-  ) {
-    return;
+  if (elements.tableField) {
+    elements.tableField.hidden = !isTable;
   }
 
-  const selectedType =
-    getCurrentOrderType();
+  if (elements.deliveryFields) {
+    elements.deliveryFields.hidden =
+      !isDelivery;
+  }
 
-  tableField.hidden =
-    selectedType !== "mesa";
+  if (elements.phoneRequiredText) {
+    elements.phoneRequiredText.hidden =
+      !isDelivery;
+  }
 
-  addressField.hidden =
-    selectedType !==
-    "delivery";
+  if (elements.customerPhone) {
+    elements.customerPhone.required =
+      isDelivery;
+  }
+
+  if (elements.deliveryZone) {
+    elements.deliveryZone.required =
+      isDelivery;
+  }
+
+  if (elements.deliveryAddress) {
+    elements.deliveryAddress.required =
+      isDelivery;
+  }
+
+  if (elements.deliveryConfirmation) {
+    elements.deliveryConfirmation.required =
+      isDelivery;
+  }
+
+  if (!isDelivery) {
+    if (elements.deliveryZone) {
+      elements.deliveryZone.value = "";
+    }
+
+    if (elements.deliveryAddress) {
+      elements.deliveryAddress.value = "";
+    }
+
+    if (elements.deliveryConfirmation) {
+      elements.deliveryConfirmation.checked =
+        false;
+    }
+  }
 
   if (
-    appState.qrTable &&
-    !appState.adminMode
+    isTable &&
+    state.qrTableId &&
+    elements.tableSelect
   ) {
-    orderType.value =
-      "mesa";
+    elements.tableSelect.value =
+      String(state.qrTableId);
+  }
 
-    orderType.disabled =
-      true;
+  handleDeliveryZoneChange();
+  renderCartTotals();
+  clearOrderMessage();
+}
 
-    tableField.hidden =
-      false;
+function handleDeliveryZoneChange() {
+  const orderType =
+    elements.orderType?.value;
 
-    addressField.hidden =
-      true;
+  const deliveryZone =
+    elements.deliveryZone?.value;
+
+  const isDelivery =
+    orderType === ORDER_TYPES.delivery;
+
+  const isUrban =
+    isDelivery &&
+    deliveryZone === DELIVERY_ZONES.urban;
+
+  const isOutside =
+    isDelivery &&
+    deliveryZone === DELIVERY_ZONES.outside;
+
+  if (elements.urbanDeliveryNotice) {
+    elements.urbanDeliveryNotice.hidden =
+      !isUrban;
+  }
+
+  if (elements.outsideDeliveryNotice) {
+    elements.outsideDeliveryNotice.hidden =
+      !isOutside;
+  }
+
+  renderCartTotals();
+  clearOrderMessage();
+}
+
+function sanitizePhoneInput(event) {
+  const originalValue =
+    String(event.target.value || "");
+
+  const cleanedValue = originalValue
+    .replace(/[^\d+\s()-]/g, "")
+    .slice(0, 16);
+
+  if (cleanedValue !== originalValue) {
+    event.target.value = cleanedValue;
   }
 }
 
-/**
- * Registra el pedido.
- *
- * @returns {Promise<void>}
- */
-async function submitOrder() {
+/* ============================================================
+   17. VALIDACIÓN DEL PEDIDO
+   ============================================================ */
+
+function validateOrder() {
+  if (state.cart.length === 0) {
+    return {
+      valid: false,
+      message:
+        "Agrega al menos un producto al pedido."
+    };
+  }
+
+  const orderType =
+    elements.orderType?.value;
+
   if (
-    appState.submittingOrder
+    !Object.values(ORDER_TYPES)
+      .includes(orderType)
   ) {
+    return {
+      valid: false,
+      message:
+        "Selecciona un tipo de pedido válido."
+    };
+  }
+
+  if (orderType === ORDER_TYPES.table) {
+    const tableId = Number(
+      elements.tableSelect?.value
+    );
+
+    if (
+      !Number.isFinite(tableId) ||
+      tableId <= 0
+    ) {
+      return {
+        valid: false,
+        message:
+          "Selecciona una mesa."
+      };
+    }
+  }
+
+  const customerName =
+    String(
+      elements.customerName?.value || ""
+    ).trim();
+
+  if (customerName.length > 100) {
+    return {
+      valid: false,
+      message:
+        "El nombre no puede superar 100 caracteres."
+    };
+  }
+
+  const phone =
+    String(
+      elements.customerPhone?.value || ""
+    ).trim();
+
+  if (
+    phone &&
+    !isValidEcuadorianMobile(phone)
+  ) {
+    return {
+      valid: false,
+      message:
+        "Ingresa un número móvil ecuatoriano válido, por ejemplo 0999999999."
+    };
+  }
+
+  if (orderType === ORDER_TYPES.delivery) {
+    if (!isValidEcuadorianMobile(phone)) {
+      return {
+        valid: false,
+        message:
+          "Para delivery debes ingresar un número móvil ecuatoriano válido."
+      };
+    }
+
+    const deliveryZone =
+      elements.deliveryZone?.value;
+
+    if (
+      !Object.values(DELIVERY_ZONES)
+        .includes(deliveryZone)
+    ) {
+      return {
+        valid: false,
+        message:
+          "Selecciona la zona de entrega."
+      };
+    }
+
+    const address =
+      String(
+        elements.deliveryAddress?.value || ""
+      ).trim();
+
+    if (!address) {
+      return {
+        valid: false,
+        message:
+          "Ingresa la dirección de entrega."
+      };
+    }
+
+    if (address.length < 8) {
+      return {
+        valid: false,
+        message:
+          "Ingresa una dirección de entrega más detallada."
+      };
+    }
+
+    if (address.length > 300) {
+      return {
+        valid: false,
+        message:
+          "La dirección no puede superar 300 caracteres."
+      };
+    }
+
+    if (
+      !elements.deliveryConfirmation?.checked
+    ) {
+      return {
+        valid: false,
+        message:
+          "Debes confirmar que el teléfono y la dirección son correctos."
+      };
+    }
+  }
+
+  const notes =
+    String(
+      elements.orderNotes?.value || ""
+    ).trim();
+
+  if (notes.length > 500) {
+    return {
+      valid: false,
+      message:
+        "Las observaciones no pueden superar 500 caracteres."
+    };
+  }
+
+  return {
+    valid: true,
+    message: ""
+  };
+}
+
+function isValidEcuadorianMobile(phone) {
+  const normalized = normalizePhone(phone);
+
+  return /^09\d{8}$/.test(normalized);
+}
+
+function normalizePhone(phone) {
+  let digits = String(phone || "")
+    .replace(/\D/g, "");
+
+  if (/^5939\d{8}$/.test(digits)) {
+    digits = `0${digits.slice(3)}`;
+  }
+
+  return digits;
+}
+
+/* ============================================================
+   18. CREACIÓN DEL PEDIDO
+   ============================================================ */
+
+async function submitOrder(event) {
+  event.preventDefault();
+
+  if (state.isSubmittingOrder) {
     return;
   }
 
   clearOrderMessage();
 
-  const validation =
-    validateOrder();
+  const validation = validateOrder();
 
   if (!validation.valid) {
     showOrderMessage(
-      validation.message
+      validation.message,
+      "error"
     );
 
     return;
   }
 
-  const submitButton =
-    document.querySelector(
-      "#submit-order"
+  const supabaseClient = getSupabaseClient();
+
+  if (!supabaseClient) {
+    showOrderMessage(
+      "No se encontró la conexión con Supabase.",
+      "error"
     );
 
-  appState.submittingOrder =
-    true;
+    return;
+  }
 
-  setButtonLoading(
-    submitButton,
-    true,
-    "Registrando…"
-  );
+  state.isSubmittingOrder = true;
+
+  setSubmitOrderLoading(true);
 
   try {
-    const {
-      data,
-      error
-    } =
-      await window.toscanaSupabase.rpc(
+    const orderType =
+      elements.orderType.value;
+
+    const isDelivery =
+      orderType === ORDER_TYPES.delivery;
+
+    const tableId =
+      orderType === ORDER_TYPES.table
+        ? Number(elements.tableSelect.value)
+        : null;
+
+    const deliveryZone =
+      isDelivery
+        ? elements.deliveryZone.value
+        : null;
+
+    const deliveryAddress =
+      isDelivery
+        ? String(
+            elements.deliveryAddress.value || ""
+          ).trim()
+        : null;
+
+    const phone =
+      String(
+        elements.customerPhone.value || ""
+      ).trim();
+
+    const items = state.cart.map((item) => ({
+      producto_id: Number(item.productId),
+      cantidad: Number(item.quantity),
+      observaciones:
+        String(item.notes || "").trim() ||
+        null
+    }));
+
+    const rpcParameters = {
+      p_tipo: orderType,
+
+      p_mesa_id: tableId,
+
+      p_cliente_nombre:
+        String(
+          elements.customerName.value || ""
+        ).trim() ||
+        null,
+
+      p_cliente_telefono:
+        phone ||
+        null,
+
+      p_direccion_entrega:
+        deliveryAddress,
+
+      p_observaciones:
+        String(
+          elements.orderNotes.value || ""
+        ).trim() ||
+        null,
+
+      p_items: items,
+
+      p_zona_delivery:
+        deliveryZone,
+
+      p_acepta_confirmacion_delivery:
+        isDelivery
+          ? Boolean(
+              elements.deliveryConfirmation.checked
+            )
+          : false
+    };
+
+    const { data, error } =
+      await supabaseClient.rpc(
         "crear_pedido",
-        buildOrderPayload(
-          validation
-        )
+        rpcParameters
       );
 
     if (error) {
+      throw error;
+    }
+
+    const createdOrder =
+      normalizeCreatedOrder(data);
+
+    if (
+      !createdOrder.ticket ||
+      !createdOrder.privateToken
+    ) {
       throw new Error(
-        error.message ||
-        "No se pudo registrar el pedido."
+        "El servidor no devolvió el ticket o la credencial de seguimiento."
       );
     }
 
-    if (!data) {
-      throw new Error(
-        "El pedido no devolvió una respuesta válida."
-      );
-    }
+    state.lastCreatedOrder =
+      createdOrder;
 
-    persistLastOrderToken(
-      data.token_consulta
-    );
+    saveCreatedOrder(createdOrder);
+    showOrderSuccess(createdOrder);
 
-    renderSuccessDialog(
-      data
-    );
-
-    closeCart();
+    clearCartAfterSuccessfulOrder();
   } catch (error) {
     console.error(
       "Error al registrar el pedido:",
@@ -2401,454 +2187,1565 @@ async function submitOrder() {
     );
 
     showOrderMessage(
-      error?.message ||
-      "No se pudo registrar el pedido."
+      getReadableError(
+        error,
+        "No se pudo registrar el pedido."
+      ),
+      "error"
     );
   } finally {
-    appState.submittingOrder =
-      false;
-
-    setButtonLoading(
-      submitButton,
-      false,
-      "Confirmar pedido"
-    );
+    state.isSubmittingOrder = false;
+    setSubmitOrderLoading(false);
   }
 }
 
-/**
- * Valida el pedido.
- *
- * @returns {object}
- */
-function validateOrder() {
-  if (
-    appState.cart.length ===
-    0
-  ) {
-    return {
-      valid: false,
-      message:
-        "Agrega al menos un producto."
-    };
-  }
-
-  const orderType =
-    getCurrentOrderType();
-
-  const tableSelect =
-    document.querySelector(
-      "#table-select"
-    );
-
-  const address =
-    getInputValue(
-      "#delivery-address"
-    );
-
-  const tableId =
-    orderType === "mesa"
-      ? (
-          appState.qrTable?.id ||
-          tableSelect?.value ||
-          null
-        )
-      : null;
-
-  if (
-    orderType === "mesa" &&
-    !tableId
-  ) {
-    return {
-      valid: false,
-      message:
-        "Selecciona una mesa."
-    };
-  }
-
-  if (
-    orderType ===
-      "delivery" &&
-    !address
-  ) {
-    return {
-      valid: false,
-      message:
-        "Registra la dirección de entrega."
-    };
-  }
+function normalizeCreatedOrder(data) {
+  const response =
+    Array.isArray(data)
+      ? data[0] || {}
+      : data || {};
 
   return {
-    valid:
-      true,
-    orderType,
-    tableId,
-    address
-  };
-}
+    id:
+      response.pedido_id ||
+      response.id ||
+      null,
 
-/**
- * Construye los parámetros de la RPC.
- *
- * @param {object} validation
- * @returns {object}
- */
-function buildOrderPayload(
-  validation
-) {
-  return {
-    p_tipo:
-      validation.orderType,
+    ticket:
+      String(response.ticket || "")
+        .trim()
+        .toUpperCase(),
 
-    p_mesa_id:
-      validation.tableId,
-
-    p_cliente_nombre:
-      getInputValue(
-        "#customer-name"
-      ) || null,
-
-    p_cliente_telefono:
-      getInputValue(
-        "#customer-phone"
-      ) || null,
-
-    p_direccion_entrega:
-      validation.orderType ===
-        "delivery"
-        ? validation.address
-        : null,
-
-    p_observaciones:
-      getInputValue(
-        "#order-notes"
-      ) || null,
-
-    p_items:
-      appState.cart.map(
-        (item) => ({
-          producto_id:
-            item.producto_id,
-
-          cantidad:
-            Number(
-              item.cantidad
-            ),
-
-          observaciones:
-            item.observaciones ||
-            null
-        })
-      )
-  };
-}
-
-/**
- * Muestra la confirmación.
- *
- * @param {object} order
- */
-function renderSuccessDialog(
-  order
-) {
-  const recargo =
-    Number(
-      order.recargo ||
-      0
-    );
-
-  setText(
-    "#success-ticket",
-    order.ticket ||
-    "—"
-  );
-
-  setText(
-    "#success-status",
-    pretty(
-      order.estado
-    ) ||
-    "Pendiente"
-  );
-
-  setText(
-    "#success-subtotal",
-    money(
-      order.subtotal
-    )
-  );
-
-  setText(
-    "#success-disposables",
-    money(recargo)
-  );
-
-  setText(
-    "#success-total",
-    money(
-      order.total
-    )
-  );
-
-  const row =
-    document.querySelector(
-      "#success-disposables-row"
-    );
-
-  if (row) {
-    row.hidden =
-      recargo <= 0;
-  }
-
-  const dialog =
-    document.querySelector(
-      "#success-dialog"
-    );
-
-  if (
-    dialog &&
-    !dialog.open
-  ) {
-    dialog.showModal();
-  }
-}
-
-/**
- * Inicia un nuevo pedido.
- */
-function startNewOrder() {
-  clearCart();
-  clearCustomerFields();
-  clearOrderMessage();
-
-  const dialog =
-    document.querySelector(
-      "#success-dialog"
-    );
-
-  if (dialog?.open) {
-    dialog.close();
-  }
-
-  applyURLConfiguration();
-  toggleOrderFields();
-  showMenuView();
-}
-
-/**
- * Limpia campos.
- */
-function clearCustomerFields() {
-  [
-    "#customer-name",
-    "#customer-phone",
-    "#delivery-address",
-    "#order-notes"
-  ].forEach(
-    (selector) => {
-      const element =
-        document.querySelector(
-          selector
-        );
-
-      if (element) {
-        element.value =
-          "";
-      }
-    }
-  );
-}
-
-/* =========================================================
-   UTILIDADES
-   ========================================================= */
-
-function normalizeSearchText(
-  value
-) {
-  return String(
-    value ||
-    ""
-  )
-    .trim()
-    .toLowerCase()
-    .normalize(
-      "NFD"
-    )
-    .replace(
-      /[\u0300-\u036f]/g,
-      ""
-    );
-}
-
-function normalizeCategory(
-  value
-) {
-  return normalizeSearchText(
-    value
-  )
-    .replace(
-      /[^a-z0-9]+/g,
-      "-"
-    )
-    .replace(
-      /^-+|-+$/g,
-      ""
-    );
-}
-
-function getInputValue(
-  selector
-) {
-  return String(
-    document.querySelector(
-      selector
-    )?.value ||
-    ""
-  ).trim();
-}
-
-function setText(
-  selector,
-  value
-) {
-  const element =
-    document.querySelector(
-      selector
-    );
-
-  if (element) {
-    element.textContent =
+    privateToken:
       String(
-        value ??
+        response.token_consulta ||
+        response.token ||
         ""
+      ).trim(),
+
+    status:
+      String(
+        response.estado ||
+        "pendiente"
+      ),
+
+    type:
+      String(
+        response.tipo ||
+        elements.orderType?.value ||
+        ""
+      ),
+
+    subtotal:
+      Number(response.subtotal || 0),
+
+    disposableFee:
+      Number(
+        response.recargo ||
+        response.costo_desechables ||
+        0
+      ),
+
+    deliveryFee:
+      Number(
+        response.costo_delivery ||
+        0
+      ),
+
+    total:
+      Number(response.total || 0),
+
+    deliveryZone:
+      response.zona_delivery ||
+      null,
+
+    deliveryPending:
+      Boolean(
+        response.delivery_por_confirmar
+      ),
+
+    deliveryConfirmed:
+      Boolean(
+        response.delivery_confirmado
+      ),
+
+    preliminaryTotal:
+      Boolean(
+        response.total_preliminar
+      ),
+
+    deliveryMessage:
+      response.mensaje_delivery ||
+      null,
+
+    createdAt:
+      new Date().toISOString()
+  };
+}
+
+function setSubmitOrderLoading(isLoading) {
+  if (!elements.submitOrderButton) {
+    return;
+  }
+
+  elements.submitOrderButton.disabled =
+    isLoading;
+
+  elements.submitOrderButton.textContent =
+    isLoading
+      ? "Registrando pedido..."
+      : "Confirmar pedido";
+}
+
+/* ============================================================
+   19. PEDIDO EXITOSO
+   ============================================================ */
+
+function showOrderSuccess(order) {
+  if (elements.successTicket) {
+    elements.successTicket.textContent =
+      order.ticket;
+  }
+
+  if (elements.successTicketReminder) {
+    elements.successTicketReminder.textContent =
+      order.ticket;
+  }
+
+  if (elements.successStatus) {
+    elements.successStatus.textContent =
+      formatStatus(order.status);
+  }
+
+  if (elements.successTotalLabel) {
+    elements.successTotalLabel.textContent =
+      order.preliminaryTotal
+        ? "Total preliminar"
+        : "Total";
+  }
+
+  if (elements.successTotal) {
+    elements.successTotal.textContent =
+      formatMoney(order.total);
+  }
+
+  if (elements.successDeliveryPendingRow) {
+    elements.successDeliveryPendingRow.hidden =
+      !order.deliveryPending;
+  }
+
+  if (elements.successDescription) {
+    elements.successDescription.textContent =
+      getSuccessDescription(order);
+  }
+
+  if (elements.successDeliveryMessage) {
+    const shouldShowDeliveryMessage =
+      Boolean(order.deliveryMessage) ||
+      order.deliveryPending;
+
+    elements.successDeliveryMessage.hidden =
+      !shouldShowDeliveryMessage;
+
+    elements.successDeliveryMessage.textContent =
+      order.deliveryMessage ||
+      (
+        order.deliveryPending
+          ? "Toscana Grill confirmará el costo final del delivery mediante el número registrado."
+          : ""
       );
   }
+
+  closeCart();
+
+  if (
+    elements.successDialog &&
+    !elements.successDialog.open
+  ) {
+    elements.successDialog.showModal();
+  }
 }
 
-function setButtonLoading(
-  button,
-  loading,
-  label
-) {
-  if (!button) {
+function getSuccessDescription(order) {
+  if (
+    order.type === ORDER_TYPES.delivery &&
+    order.deliveryPending
+  ) {
+    return (
+      "Tu pedido fue registrado. " +
+      "El total es preliminar hasta que Toscana Grill " +
+      "confirme el costo del delivery."
+    );
+  }
+
+  if (order.type === ORDER_TYPES.delivery) {
+    return (
+      "Tu pedido fue registrado con el costo de delivery incluido."
+    );
+  }
+
+  if (order.type === ORDER_TYPES.takeaway) {
+    return (
+      "Tu pedido para llevar fue enviado correctamente."
+    );
+  }
+
+  return (
+    "Tu pedido fue enviado correctamente a Toscana Grill."
+  );
+}
+
+function closeSuccessDialog() {
+  if (
+    elements.successDialog?.open
+  ) {
+    elements.successDialog.close();
+  }
+
+  state.lastCreatedOrder = null;
+}
+
+function clearCartAfterSuccessfulOrder() {
+  state.cart = [];
+  persistCart();
+
+  if (elements.orderNotes) {
+    elements.orderNotes.value = "";
+  }
+
+  if (elements.deliveryAddress) {
+    elements.deliveryAddress.value = "";
+  }
+
+  if (elements.deliveryZone) {
+    elements.deliveryZone.value = "";
+  }
+
+  if (elements.deliveryConfirmation) {
+    elements.deliveryConfirmation.checked =
+      false;
+  }
+
+  renderCart();
+  renderMenu();
+  handleOrderTypeChange();
+}
+
+/* ============================================================
+   20. ALMACENAMIENTO DEL CARRITO
+   ============================================================ */
+
+function persistCart() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.cart,
+      JSON.stringify(state.cart)
+    );
+  } catch (error) {
+    console.warn(
+      "No se pudo guardar el carrito:",
+      error
+    );
+  }
+}
+
+function restoreCart() {
+  try {
+    const storedValue =
+      localStorage.getItem(STORAGE_KEYS.cart);
+
+    if (!storedValue) {
+      state.cart = [];
+      return;
+    }
+
+    const parsedValue =
+      JSON.parse(storedValue);
+
+    if (!Array.isArray(parsedValue)) {
+      state.cart = [];
+      return;
+    }
+
+    state.cart = parsedValue
+      .map((item) => ({
+        productId: Number(
+          item.productId ??
+          item.producto_id
+        ),
+
+        name: String(
+          item.name ??
+          item.nombre ??
+          "Producto"
+        ),
+
+        price: Number(
+          item.price ??
+          item.precio ??
+          0
+        ),
+
+        quantity: Number(
+          item.quantity ??
+          item.cantidad ??
+          1
+        ),
+
+        notes: String(
+          item.notes ??
+          item.observaciones ??
+          ""
+        )
+      }))
+      .filter((item) => {
+        return (
+          Number.isFinite(item.productId) &&
+          item.productId > 0 &&
+          Number.isFinite(item.price) &&
+          item.price >= 0 &&
+          Number.isInteger(item.quantity) &&
+          item.quantity > 0
+        );
+      });
+  } catch (error) {
+    console.warn(
+      "No se pudo recuperar el carrito:",
+      error
+    );
+
+    state.cart = [];
+  }
+}
+
+/* ============================================================
+   21. PEDIDOS GUARDADOS EN EL DISPOSITIVO
+   ============================================================ */
+
+function saveCreatedOrder(order) {
+  const savedOrders = getSavedOrders();
+
+  const newSavedOrder = {
+    ticket: order.ticket,
+    privateToken: order.privateToken,
+    type: order.type,
+    total: order.total,
+    status: order.status,
+    createdAt: order.createdAt
+  };
+
+  const filteredOrders = savedOrders.filter(
+    (savedOrder) =>
+      savedOrder.ticket !== order.ticket
+  );
+
+  filteredOrders.unshift(newSavedOrder);
+
+  const limitedOrders =
+    filteredOrders.slice(0, 20);
+
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.savedOrders,
+      JSON.stringify(limitedOrders)
+    );
+
+    localStorage.setItem(
+      STORAGE_KEYS.lastOrder,
+      JSON.stringify(newSavedOrder)
+    );
+  } catch (error) {
+    console.warn(
+      "No se pudo guardar el seguimiento:",
+      error
+    );
+  }
+
+  renderSavedOrders();
+}
+
+function getSavedOrders() {
+  try {
+    const storedValue =
+      localStorage.getItem(
+        STORAGE_KEYS.savedOrders
+      );
+
+    if (!storedValue) {
+      return [];
+    }
+
+    const parsedValue =
+      JSON.parse(storedValue);
+
+    if (!Array.isArray(parsedValue)) {
+      return [];
+    }
+
+    return parsedValue.filter(
+      (order) =>
+        isValidTicket(order.ticket) &&
+        Boolean(order.privateToken)
+    );
+  } catch (error) {
+    console.warn(
+      "No se pudieron recuperar los pedidos guardados:",
+      error
+    );
+
+    return [];
+  }
+}
+
+function findSavedOrder(ticket) {
+  const normalizedTicket =
+    normalizeTicket(ticket);
+
+  return getSavedOrders().find(
+    (order) =>
+      normalizeTicket(order.ticket) ===
+      normalizedTicket
+  ) || null;
+}
+
+function renderSavedOrders() {
+  if (
+    !elements.savedOrdersField ||
+    !elements.savedOrdersSelect
+  ) {
     return;
   }
 
-  button.disabled =
-    loading;
+  const savedOrders = getSavedOrders();
 
-  button.textContent =
-    label;
+  elements.savedOrdersField.hidden =
+    savedOrders.length === 0;
+
+  if (savedOrders.length === 0) {
+    elements.savedOrdersSelect.innerHTML = `
+      <option value="">
+        No existen pedidos guardados
+      </option>
+    `;
+
+    return;
+  }
+
+  const options = savedOrders
+    .map((order) => {
+      const dateText =
+        formatSavedOrderDate(order.createdAt);
+
+      return `
+        <option value="${escapeAttribute(order.ticket)}">
+          ${escapeHtml(order.ticket)}
+          ·
+          ${escapeHtml(formatOrderType(order.type))}
+          ·
+          ${escapeHtml(dateText)}
+        </option>
+      `;
+    })
+    .join("");
+
+  elements.savedOrdersSelect.innerHTML = `
+    <option value="">
+      Selecciona un pedido
+    </option>
+
+    ${options}
+  `;
 }
+
+/* ============================================================
+   22. SEGUIMIENTO DEL PEDIDO
+   ============================================================ */
+
+function openTrackingDialog(ticket = "") {
+  clearTrackingMessage();
+  hideTrackingResult();
+  renderSavedOrders();
+
+  if (elements.trackingTicketInput) {
+    elements.trackingTicketInput.value =
+      normalizeTicket(ticket);
+  }
+
+  if (
+    elements.trackingDialog &&
+    !elements.trackingDialog.open
+  ) {
+    elements.trackingDialog.showModal();
+  }
+
+  window.setTimeout(() => {
+    elements.trackingTicketInput?.focus();
+  }, 100);
+}
+
+function closeTrackingDialog() {
+  if (elements.trackingDialog?.open) {
+    elements.trackingDialog.close();
+  }
+
+  clearTrackingMessage();
+}
+
+function trackLastCreatedOrder() {
+  if (!state.lastCreatedOrder) {
+    return;
+  }
+
+  if (elements.successDialog?.open) {
+    elements.successDialog.close();
+  }
+
+  openTrackingDialog(
+    state.lastCreatedOrder.ticket
+  );
+
+  window.setTimeout(() => {
+    executeTracking(
+      state.lastCreatedOrder.ticket
+    );
+  }, 150);
+}
+
+function handleSavedOrderSelection(event) {
+  const selectedTicket =
+    normalizeTicket(event.target.value);
+
+  if (!selectedTicket) {
+    return;
+  }
+
+  if (elements.trackingTicketInput) {
+    elements.trackingTicketInput.value =
+      selectedTicket;
+  }
+
+  executeTracking(selectedTicket);
+}
+
+async function submitTracking(event) {
+  event.preventDefault();
+
+  const ticket =
+    normalizeTicket(
+      elements.trackingTicketInput?.value
+    );
+
+  await executeTracking(ticket);
+}
+
+async function executeTracking(ticket) {
+  if (state.isTrackingOrder) {
+    return;
+  }
+
+  clearTrackingMessage();
+  hideTrackingResult();
+
+  if (!isValidTicket(ticket)) {
+    showTrackingMessage(
+      "Ingresa un ticket válido con formato TG-YYMMDD-NNNN.",
+      "error"
+    );
+
+    return;
+  }
+
+  const savedOrder = findSavedOrder(ticket);
+
+  if (!savedOrder?.privateToken) {
+    showTrackingMessage(
+      "Este pedido no está guardado en este dispositivo. " +
+      "Para proteger la información, la consulta requiere " +
+      "la credencial privada generada al registrar el pedido.",
+      "error"
+    );
+
+    return;
+  }
+
+  const supabaseClient = getSupabaseClient();
+
+  if (!supabaseClient) {
+    showTrackingMessage(
+      "No se encontró la conexión con Supabase.",
+      "error"
+    );
+
+    return;
+  }
+
+  state.isTrackingOrder = true;
+  state.currentTrackingTicket = ticket;
+
+  setTrackingLoading(true);
+
+  try {
+    const { data, error } =
+      await supabaseClient.rpc(
+        "consultar_pedido",
+        {
+          p_ticket: ticket,
+          p_token_consulta:
+            savedOrder.privateToken
+        }
+      );
+
+    if (error) {
+      throw error;
+    }
+
+    const order = normalizeTrackedOrder(data);
+
+    renderTrackedOrder(order);
+    updateSavedOrderStatus(order);
+  } catch (error) {
+    console.error(
+      "Error al consultar el pedido:",
+      error
+    );
+
+    showTrackingMessage(
+      getReadableError(
+        error,
+        "No se pudo consultar el pedido."
+      ),
+      "error"
+    );
+  } finally {
+    state.isTrackingOrder = false;
+    setTrackingLoading(false);
+  }
+}
+
+function normalizeTrackedOrder(data) {
+  const response =
+    Array.isArray(data)
+      ? data[0] || {}
+      : data || {};
+
+  const tableData =
+    response.mesa || null;
+
+  const detail =
+    response.detalle ||
+    response.items ||
+    [];
+
+  return {
+    id:
+      response.pedido_id ||
+      response.id ||
+      null,
+
+    ticket:
+      normalizeTicket(response.ticket),
+
+    status:
+      String(
+        response.estado ||
+        "pendiente"
+      ),
+
+    paymentStatus:
+      String(
+        response.estado_pago ||
+        "pendiente"
+      ),
+
+    type:
+      String(response.tipo || ""),
+
+    customerName:
+      response.cliente_nombre ||
+      null,
+
+    table:
+      tableData
+        ? (
+            tableData.nombre ||
+            (
+              tableData.numero
+                ? `Mesa ${tableData.numero}`
+                : null
+            )
+          )
+        : null,
+
+    deliveryZone:
+      response.zona_delivery ||
+      null,
+
+    deliveryAddress:
+      response.direccion_entrega ||
+      null,
+
+    subtotal:
+      Number(response.subtotal || 0),
+
+    disposableFee:
+      Number(
+        response.recargo ||
+        response.costo_desechables ||
+        0
+      ),
+
+    discount:
+      Number(response.descuento || 0),
+
+    deliveryFee:
+      Number(
+        response.costo_delivery_confirmado ??
+        response.costo_delivery ??
+        0
+      ),
+
+    deliveryPending:
+      Boolean(
+        response.delivery_por_confirmar
+      ),
+
+    deliveryConfirmed:
+      Boolean(
+        response.delivery_confirmado
+      ),
+
+    preliminaryTotal:
+      Boolean(
+        response.total_preliminar
+      ),
+
+    total:
+      Number(response.total || 0),
+
+    notes:
+      response.observaciones ||
+      null,
+
+    createdAt:
+      response.creado_en ||
+      null,
+
+    updatedAt:
+      response.actualizado_en ||
+      null,
+
+    items:
+      Array.isArray(detail)
+        ? detail.map(normalizeTrackedItem)
+        : []
+  };
+}
+
+function normalizeTrackedItem(item) {
+  return {
+    productId:
+      item.producto_id ||
+      null,
+
+    name:
+      String(
+        item.producto ||
+        item.producto_nombre ||
+        "Producto"
+      ),
+
+    quantity:
+      Number(item.cantidad || 0),
+
+    unitPrice:
+      Number(
+        item.precio_unitario ||
+        0
+      ),
+
+    subtotal:
+      Number(
+        item.subtotal ||
+        (
+          Number(item.cantidad || 0) *
+          Number(item.precio_unitario || 0)
+        )
+      ),
+
+    notes:
+      item.observaciones ||
+      null
+  };
+}
+
+function renderTrackedOrder(order) {
+  if (elements.trackingStatus) {
+    elements.trackingStatus.textContent =
+      formatStatus(order.status);
+  }
+
+  if (elements.trackingTicket) {
+    elements.trackingTicket.textContent =
+      order.ticket;
+  }
+
+  if (elements.trackingType) {
+    elements.trackingType.textContent =
+      formatOrderType(order.type);
+  }
+
+  if (elements.trackingTableRow) {
+    elements.trackingTableRow.hidden =
+      order.type !== ORDER_TYPES.table;
+  }
+
+  if (elements.trackingTable) {
+    elements.trackingTable.textContent =
+      order.table || "No especificada";
+  }
+
+  if (elements.trackingZoneRow) {
+    elements.trackingZoneRow.hidden =
+      order.type !== ORDER_TYPES.delivery;
+  }
+
+  if (elements.trackingZone) {
+    elements.trackingZone.textContent =
+      formatDeliveryZone(order.deliveryZone);
+  }
+
+  if (elements.trackingAddressRow) {
+    elements.trackingAddressRow.hidden =
+      order.type !== ORDER_TYPES.delivery ||
+      !order.deliveryAddress;
+  }
+
+  if (elements.trackingAddress) {
+    elements.trackingAddress.textContent =
+      order.deliveryAddress ||
+      "No registrada";
+  }
+
+  if (elements.trackingSubtotal) {
+    elements.trackingSubtotal.textContent =
+      formatMoney(order.subtotal);
+  }
+
+  if (elements.trackingDisposableFee) {
+    elements.trackingDisposableFee.textContent =
+      formatMoney(order.disposableFee);
+  }
+
+  if (elements.trackingDeliveryFee) {
+    elements.trackingDeliveryFee.textContent =
+      order.deliveryPending
+        ? "Por confirmar"
+        : formatMoney(order.deliveryFee);
+  }
+
+  if (elements.trackingTotalLabel) {
+    elements.trackingTotalLabel.textContent =
+      order.preliminaryTotal
+        ? "Total preliminar"
+        : "Total";
+  }
+
+  if (elements.trackingTotal) {
+    elements.trackingTotal.textContent =
+      formatMoney(order.total);
+  }
+
+  if (elements.trackingPreliminaryNotice) {
+    elements.trackingPreliminaryNotice.hidden =
+      !order.deliveryPending;
+  }
+
+  renderTrackingItems(order.items);
+
+  if (elements.trackingResult) {
+    elements.trackingResult.hidden = false;
+  }
+
+  clearTrackingMessage();
+}
+
+function renderTrackingItems(items) {
+  if (!elements.trackingItems) {
+    return;
+  }
+
+  if (!items.length) {
+    elements.trackingItems.innerHTML = `
+      <p class="tracking-empty-items">
+        No se encontró el detalle del pedido.
+      </p>
+    `;
+
+    return;
+  }
+
+  elements.trackingItems.innerHTML =
+    items
+      .map((item) => {
+        return `
+          <article class="tracking-item">
+            <div class="tracking-item-header">
+              <strong>
+                ${item.quantity}
+                ×
+                ${escapeHtml(item.name)}
+              </strong>
+
+              <strong>
+                ${formatMoney(item.subtotal)}
+              </strong>
+            </div>
+
+            <p>
+              ${formatMoney(item.unitPrice)}
+              por unidad
+            </p>
+
+            ${
+              item.notes
+                ? `
+                  <p>
+                    Indicaciones:
+                    ${escapeHtml(item.notes)}
+                  </p>
+                `
+                : ""
+            }
+          </article>
+        `;
+      })
+      .join("");
+}
+
+async function refreshCurrentTracking() {
+  const ticket =
+    state.currentTrackingTicket ||
+    normalizeTicket(
+      elements.trackingTicketInput?.value
+    );
+
+  await executeTracking(ticket);
+}
+
+function hideTrackingResult() {
+  if (elements.trackingResult) {
+    elements.trackingResult.hidden = true;
+  }
+}
+
+function setTrackingLoading(isLoading) {
+  if (elements.submitTrackingButton) {
+    elements.submitTrackingButton.disabled =
+      isLoading;
+
+    elements.submitTrackingButton.textContent =
+      isLoading
+        ? "Consultando..."
+        : "Consultar pedido";
+  }
+
+  if (elements.refreshTrackingButton) {
+    elements.refreshTrackingButton.disabled =
+      isLoading;
+
+    elements.refreshTrackingButton.textContent =
+      isLoading
+        ? "Actualizando..."
+        : "Actualizar estado";
+  }
+}
+
+function updateSavedOrderStatus(order) {
+  const savedOrders = getSavedOrders();
+
+  const updatedOrders = savedOrders.map(
+    (savedOrder) => {
+      if (
+        normalizeTicket(savedOrder.ticket) !==
+        normalizeTicket(order.ticket)
+      ) {
+        return savedOrder;
+      }
+
+      return {
+        ...savedOrder,
+        status: order.status,
+        total: order.total
+      };
+    }
+  );
+
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.savedOrders,
+      JSON.stringify(updatedOrders)
+    );
+  } catch (error) {
+    console.warn(
+      "No se pudo actualizar el pedido guardado:",
+      error
+    );
+  }
+}
+
+/* ============================================================
+   23. FORMATO DEL TICKET
+   ============================================================ */
+
+function formatTrackingTicketInput(event) {
+  const formattedTicket =
+    normalizeTicketInput(event.target.value);
+
+  event.target.value = formattedTicket;
+}
+
+function normalizeTicketInput(value) {
+  const raw = String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+
+  let remaining = raw;
+
+  if (remaining.startsWith("TG")) {
+    remaining = remaining.slice(2);
+  }
+
+  const datePart =
+    remaining.slice(0, 6);
+
+  const sequencePart =
+    remaining.slice(6, 10);
+
+  let result = "TG";
+
+  if (
+    datePart.length > 0 ||
+    raw.startsWith("TG")
+  ) {
+    result += `-${datePart}`;
+  }
+
+  if (sequencePart.length > 0) {
+    result += `-${sequencePart}`;
+  }
+
+  return result.slice(0, 14);
+}
+
+function normalizeTicket(value) {
+  const compact = String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+
+  const match = compact.match(
+    /^TG(\d{6})(\d{4})$/
+  );
+
+  if (!match) {
+    return String(value || "")
+      .trim()
+      .toUpperCase();
+  }
+
+  return `TG-${match[1]}-${match[2]}`;
+}
+
+function isValidTicket(ticket) {
+  return /^TG-\d{6}-\d{4}$/.test(
+    normalizeTicket(ticket)
+  );
+}
+
+/* ============================================================
+   24. MENSAJES
+   ============================================================ */
 
 function showOrderMessage(
-  message
+  message,
+  type = "error"
 ) {
-  const element =
-    document.querySelector(
-      "#order-message"
-    );
-
-  if (!element) {
+  if (!elements.orderMessage) {
     return;
   }
 
-  element.textContent =
-    String(
-      message ||
-      ""
-    );
+  elements.orderMessage.textContent =
+    String(message || "");
 
-  element.hidden =
-    false;
+  elements.orderMessage.dataset.type =
+    type;
 
-  openCart();
+  elements.orderMessage.hidden = false;
 }
 
 function clearOrderMessage() {
-  const element =
-    document.querySelector(
-      "#order-message"
-    );
-
-  if (!element) {
+  if (!elements.orderMessage) {
     return;
   }
 
-  element.textContent =
-    "";
+  elements.orderMessage.textContent = "";
+  elements.orderMessage.hidden = true;
 
-  element.hidden =
-    true;
+  delete elements.orderMessage.dataset.type;
 }
 
-function persistLastOrderToken(
-  token
+function showTrackingMessage(
+  message,
+  type = "error"
 ) {
-  if (!token) {
+  if (!elements.trackingMessage) {
     return;
   }
 
-  localStorage.setItem(
-    "toscana_ultimo_token",
-    String(token)
+  elements.trackingMessage.textContent =
+    String(message || "");
+
+  elements.trackingMessage.dataset.type =
+    type;
+
+  elements.trackingMessage.hidden = false;
+}
+
+function clearTrackingMessage() {
+  if (!elements.trackingMessage) {
+    return;
+  }
+
+  elements.trackingMessage.textContent = "";
+  elements.trackingMessage.hidden = true;
+
+  delete elements.trackingMessage.dataset.type;
+}
+
+/* ============================================================
+   25. RELOJ Y HORARIO
+   ============================================================ */
+
+function updateEcuadorClock() {
+  if (!elements.ecuadorClock) {
+    return;
+  }
+
+  elements.ecuadorClock.textContent =
+    new Intl.DateTimeFormat(
+      "es-EC",
+      {
+        timeZone: ECUADOR_TIME_ZONE,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }
+    ).format(new Date());
+}
+
+function updateBusinessStatus() {
+  if (
+    !elements.businessStatus ||
+    !elements.businessScheduleMessage
+  ) {
+    return;
+  }
+
+  const ecuadorDateParts =
+    getEcuadorDateParts();
+
+  const schedule =
+    getConfiguredSchedule();
+
+  const daySchedule =
+    schedule[ecuadorDateParts.weekDay];
+
+  if (
+    !daySchedule ||
+    daySchedule.closed === true
+  ) {
+    elements.businessStatus.textContent =
+      "Cerrado";
+
+    elements.businessStatus.dataset.status =
+      "closed";
+
+    elements.businessScheduleMessage.textContent =
+      "Hoy no tenemos atención.";
+
+    return;
+  }
+
+  const currentMinutes =
+    ecuadorDateParts.hour * 60 +
+    ecuadorDateParts.minute;
+
+  const openMinutes =
+    parseTimeToMinutes(daySchedule.open);
+
+  const closeMinutes =
+    parseTimeToMinutes(daySchedule.close);
+
+  const isOpen =
+    currentMinutes >= openMinutes &&
+    currentMinutes < closeMinutes;
+
+  elements.businessStatus.textContent =
+    isOpen
+      ? "Abierto ahora"
+      : "Cerrado";
+
+  elements.businessStatus.dataset.status =
+    isOpen
+      ? "open"
+      : "closed";
+
+  elements.businessScheduleMessage.textContent =
+    isOpen
+      ? `Atendemos hoy hasta las ${formatSimpleTime(daySchedule.close)}.`
+      : `Horario de hoy: ${formatSimpleTime(daySchedule.open)} a ${formatSimpleTime(daySchedule.close)}.`;
+}
+
+function getConfiguredSchedule() {
+  const configuredSchedule =
+    window.TOSCANA_CONFIG?.schedule ||
+    window.TOSCANA_CONFIG?.horario ||
+    null;
+
+  if (!configuredSchedule) {
+    return DEFAULT_SCHEDULE;
+  }
+
+  return {
+    ...DEFAULT_SCHEDULE,
+    ...configuredSchedule
+  };
+}
+
+function getEcuadorDateParts() {
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: ECUADOR_TIME_ZONE,
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }
+    );
+
+  const parts =
+    formatter.formatToParts(
+      new Date()
+    );
+
+  const values = Object.fromEntries(
+    parts.map((part) => [
+      part.type,
+      part.value
+    ])
+  );
+
+  const weekDayMap = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6
+  };
+
+  return {
+    weekDay:
+      weekDayMap[values.weekday] ?? 0,
+
+    hour:
+      Number(values.hour || 0) % 24,
+
+    minute:
+      Number(values.minute || 0)
+  };
+}
+
+function parseTimeToMinutes(value) {
+  const [hours, minutes] =
+    String(value || "00:00")
+      .split(":")
+      .map(Number);
+
+  return (
+    (Number.isFinite(hours) ? hours : 0) *
+      60 +
+    (Number.isFinite(minutes) ? minutes : 0)
   );
 }
 
-function money(value) {
+function formatSimpleTime(value) {
+  const [hours, minutes] =
+    String(value || "00:00")
+      .split(":")
+      .map(Number);
+
+  const date = new Date();
+
+  date.setHours(
+    Number.isFinite(hours) ? hours : 0,
+    Number.isFinite(minutes) ? minutes : 0,
+    0,
+    0
+  );
+
+  return new Intl.DateTimeFormat(
+    "es-EC",
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }
+  ).format(date);
+}
+
+/* ============================================================
+   26. TECLADO
+   ============================================================ */
+
+function handleGlobalKeydown(event) {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (
+    elements.cartDrawer?.classList.contains(
+      "open"
+    )
+  ) {
+    closeCart();
+  }
+}
+
+/* ============================================================
+   27. FORMATEADORES
+   ============================================================ */
+
+function formatMoney(value) {
   return new Intl.NumberFormat(
     "es-EC",
     {
-      style:
-        "currency",
-      currency:
-        "USD",
-      minimumFractionDigits:
-        2
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
     }
-  ).format(
-    Number(
-      value ||
-      0
+  ).format(Number(value || 0));
+}
+
+function roundMoney(value) {
+  return Math.round(
+    (Number(value || 0) +
+      Number.EPSILON) *
+      100
+  ) / 100;
+}
+
+function formatStatus(status) {
+  const statusLabels = {
+    pendiente: "Pendiente",
+    confirmado: "Confirmado",
+    en_preparacion: "En preparación",
+    listo: "Listo",
+    entregado: "Entregado",
+    cerrado: "Cerrado",
+    cancelado: "Cancelado"
+  };
+
+  return (
+    statusLabels[status] ||
+    capitalizeWords(
+      String(status || "pendiente")
+        .replace(/_/g, " ")
     )
   );
 }
 
-function pretty(value) {
-  return String(
-    value ||
-    ""
-  )
-    .replaceAll(
-      "_",
-      " "
-    )
+function formatOrderType(type) {
+  const typeLabels = {
+    mesa: "Consumo en mesa",
+    para_llevar: "Para llevar",
+    delivery: "Delivery"
+  };
+
+  return typeLabels[type] || "Pedido";
+}
+
+function formatDeliveryZone(zone) {
+  const zoneLabels = {
+    urbana: "Dentro de la zona urbana",
+    fuera_urbana: "Fuera de la zona urbana"
+  };
+
+  return zoneLabels[zone] || "No especificada";
+}
+
+function formatSavedOrderDate(value) {
+  if (!value) {
+    return "Fecha no disponible";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Fecha no disponible";
+  }
+
+  return new Intl.DateTimeFormat(
+    "es-EC",
+    {
+      timeZone: ECUADOR_TIME_ZONE,
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }
+  ).format(date);
+}
+
+function capitalizeWords(value) {
+  return String(value || "")
+    .toLocaleLowerCase("es")
     .replace(
-      /\b\w/g,
+      /(^|\s)\S/g,
       (character) =>
-        character.toUpperCase()
+        character.toLocaleUpperCase("es")
     );
 }
 
-function escapeHTML(value) {
-  return String(
-    value ??
-    ""
-  ).replace(
-    /[&<>"']/g,
-    (character) => {
-      const entities = {
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#039;"
-      };
+function normalizeText(value) {
+  return String(value || "")
+    .toLocaleLowerCase("es")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
 
-      return entities[
-        character
-      ];
-    }
+function slugify(value) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/* ============================================================
+   28. SEGURIDAD DE TEXTO
+   ============================================================ */
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(
+      /[&<>"']/g,
+      (character) => {
+        const entities = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;"
+        };
+
+        return entities[character];
+      }
+    );
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value);
+}
+
+/* ============================================================
+   29. MANEJO DE ERRORES
+   ============================================================ */
+
+function getReadableError(
+  error,
+  fallbackMessage
+) {
+  const rawMessage =
+    String(
+      error?.message ||
+      error?.details ||
+      error?.hint ||
+      ""
+    ).trim();
+
+  if (!rawMessage) {
+    return fallbackMessage;
+  }
+
+  const knownMessages = [
+    "El tipo de pedido no es válido",
+    "El pedido debe contener al menos un producto",
+    "Debe seleccionar una mesa",
+    "La mesa seleccionada no existe o está inactiva",
+    "Debe ingresar un número móvil ecuatoriano válido",
+    "Debe ingresar la dirección de entrega",
+    "Debe seleccionar una zona de entrega válida",
+    "Debe aceptar la confirmación del pedido y del delivery",
+    "Uno de los productos ya no se encuentra disponible",
+    "El formato del ticket no es válido",
+    "No se encontró el pedido",
+    "No se encontró la credencial privada de seguimiento"
+  ];
+
+  const matchingMessage =
+    knownMessages.find((message) =>
+      rawMessage.includes(message)
+    );
+
+  if (matchingMessage) {
+    return ensurePeriod(matchingMessage);
+  }
+
+  if (
+    rawMessage.includes(
+      "Could not find the function"
+    ) ||
+    rawMessage.includes(
+      "function public.crear_pedido"
+    )
+  ) {
+    return (
+      "La función crear_pedido no está disponible. " +
+      "Ejecuta primero la migración 007 en Supabase."
+    );
+  }
+
+  if (
+    rawMessage.includes("Failed to fetch") ||
+    rawMessage.includes("NetworkError") ||
+    rawMessage.includes("Load failed")
+  ) {
+    return (
+      "No se pudo conectar con el servidor. " +
+      "Revisa tu conexión a internet."
+    );
+  }
+
+  console.warn(
+    "Mensaje técnico recibido:",
+    rawMessage
   );
+
+  return fallbackMessage;
+}
+
+function ensurePeriod(value) {
+  const text = String(value || "").trim();
+
+  if (!text) {
+    return "";
+  }
+
+  return /[.!?]$/.test(text)
+    ? text
+    : `${text}.`;
 }
