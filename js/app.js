@@ -2,31 +2,24 @@
 
 /**
  * Toscana Grill
- * Menú público y toma manual de pedidos.
+ * Menú público, portada, carrito móvil y registro de pedidos.
  *
- * Modos disponibles:
- *
- * 1. Cliente mediante QR:
- *    ?mesa=4
- *    La mesa queda seleccionada y bloqueada.
- *
- * 2. Personal del restaurante:
- *    ?modo=admin
- *    Permite seleccionar manualmente el tipo de pedido y la mesa.
- *
- * 3. Acceso general:
- *    Sin parámetros.
- *    Mantiene la selección manual habilitada.
- *
- * Funcionalidades:
- * - Carga productos y categorías desde Supabase.
- * - Filtro "Todos" y filtro individual por categoría.
- * - Búsqueda de productos.
- * - Carrito persistente en localStorage.
- * - Pedido en mesa, para llevar o delivery.
- * - Detección automática de mesa mediante QR.
- * - Registro del pedido mediante la RPC crear_pedido.
+ * Incluye:
+ * - Portada visual.
+ * - Reloj de Ecuador en tiempo real.
+ * - Horario abierto/cerrado.
+ * - Navegación entre portada y menú.
+ * - Filtros por categorías.
+ * - Búsqueda.
+ * - Carrito persistente.
+ * - Panel inferior del pedido.
+ * - Costo de desechables para llevar y delivery.
+ * - QR por mesa.
+ * - Modo de toma manual.
+ * - Registro mediante Supabase.
  */
+
+const DISPOSABLES_COST = 0.50;
 
 const appState = {
   menu: [],
@@ -42,7 +35,9 @@ const appState = {
 
   loadingMenu: false,
   loadingTables: false,
-  submittingOrder: false
+  submittingOrder: false,
+
+  clockTimer: null
 };
 
 document.addEventListener(
@@ -60,6 +55,8 @@ async function initializeApplication() {
   detectURLMode();
   restoreCart();
   renderCart();
+  initializeClock();
+  renderBusinessStatus();
 
   if (!window.toscanaSupabase) {
     showOrderMessage(
@@ -81,6 +78,13 @@ async function initializeApplication() {
 
     applyURLConfiguration();
     toggleOrderFields();
+
+    if (
+      appState.adminMode ||
+      appState.qrTableNumber
+    ) {
+      showMenuView();
+    }
   } catch (error) {
     console.error(
       "Error al inicializar Toscana Grill:",
@@ -94,24 +98,117 @@ async function initializeApplication() {
   }
 }
 
+/* =========================================================
+   EVENTOS
+   ========================================================= */
+
 /**
- * Configura eventos permanentes.
+ * Registra los eventos permanentes.
  */
 function bindPermanentEvents() {
-  const searchInput =
-    document.querySelector("#search");
+  const showMenuButton =
+    document.querySelector(
+      "#show-menu-button"
+    );
 
-  const clearCartButton =
-    document.querySelector("#clear-cart");
+  const showCartButton =
+    document.querySelector(
+      "#show-cart-button"
+    );
+
+  const backHomeButton =
+    document.querySelector(
+      "#back-home-button"
+    );
+
+  const openCartTopButton =
+    document.querySelector(
+      "#open-cart-top-button"
+    );
+
+  const mobileCartButton =
+    document.querySelector(
+      "#mobile-cart-button"
+    );
+
+  const closeCartButton =
+    document.querySelector(
+      "#close-cart-button"
+    );
+
+  const cartOverlay =
+    document.querySelector(
+      "#cart-overlay"
+    );
+
+  const searchInput =
+    document.querySelector(
+      "#search"
+    );
 
   const orderType =
-    document.querySelector("#order-type");
+    document.querySelector(
+      "#order-type"
+    );
 
   const submitOrderButton =
-    document.querySelector("#submit-order");
+    document.querySelector(
+      "#submit-order"
+    );
 
   const newOrderButton =
-    document.querySelector("#new-order");
+    document.querySelector(
+      "#new-order"
+    );
+
+  if (showMenuButton) {
+    showMenuButton.addEventListener(
+      "click",
+      showMenuView
+    );
+  }
+
+  if (showCartButton) {
+    showCartButton.addEventListener(
+      "click",
+      openCart
+    );
+  }
+
+  if (backHomeButton) {
+    backHomeButton.addEventListener(
+      "click",
+      showHomeView
+    );
+  }
+
+  if (openCartTopButton) {
+    openCartTopButton.addEventListener(
+      "click",
+      openCart
+    );
+  }
+
+  if (mobileCartButton) {
+    mobileCartButton.addEventListener(
+      "click",
+      openCart
+    );
+  }
+
+  if (closeCartButton) {
+    closeCartButton.addEventListener(
+      "click",
+      closeCart
+    );
+  }
+
+  if (cartOverlay) {
+    cartOverlay.addEventListener(
+      "click",
+      closeCart
+    );
+  }
 
   if (searchInput) {
     searchInput.addEventListener(
@@ -120,29 +217,13 @@ function bindPermanentEvents() {
     );
   }
 
-  if (clearCartButton) {
-    clearCartButton.addEventListener(
-      "click",
-      () => {
-        if (appState.cart.length === 0) {
-          return;
-        }
-
-        const confirmed = window.confirm(
-          "¿Deseas vaciar todos los productos del pedido?"
-        );
-
-        if (confirmed) {
-          clearCart();
-        }
-      }
-    );
-  }
-
   if (orderType) {
     orderType.addEventListener(
       "change",
-      toggleOrderFields
+      () => {
+        toggleOrderFields();
+        renderCart();
+      }
     );
   }
 
@@ -159,14 +240,397 @@ function bindPermanentEvents() {
       startNewOrder
     );
   }
+
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape") {
+        closeCart();
+      }
+    }
+  );
 }
 
 /* =========================================================
-   PARÁMETROS DE LA URL
+   NAVEGACIÓN ENTRE VISTAS
    ========================================================= */
 
 /**
- * Detecta el modo de operación desde la URL.
+ * Muestra la portada.
+ */
+function showHomeView() {
+  const homeView =
+    document.querySelector(
+      "#home-view"
+    );
+
+  const menuView =
+    document.querySelector(
+      "#menu-view"
+    );
+
+  if (homeView) {
+    homeView.hidden = false;
+  }
+
+  if (menuView) {
+    menuView.hidden = true;
+  }
+
+  closeCart();
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+
+/**
+ * Muestra el menú.
+ */
+function showMenuView() {
+  const homeView =
+    document.querySelector(
+      "#home-view"
+    );
+
+  const menuView =
+    document.querySelector(
+      "#menu-view"
+    );
+
+  if (homeView) {
+    homeView.hidden = true;
+  }
+
+  if (menuView) {
+    menuView.hidden = false;
+  }
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+
+/**
+ * Abre el panel del pedido.
+ */
+function openCart() {
+  const drawer =
+    document.querySelector(
+      "#cart-drawer"
+    );
+
+  const overlay =
+    document.querySelector(
+      "#cart-overlay"
+    );
+
+  if (!drawer || !overlay) {
+    return;
+  }
+
+  overlay.hidden = false;
+
+  drawer.classList.add(
+    "open"
+  );
+
+  drawer.setAttribute(
+    "aria-hidden",
+    "false"
+  );
+
+  document.body.classList.add(
+    "cart-open"
+  );
+}
+
+/**
+ * Cierra el panel del pedido.
+ */
+function closeCart() {
+  const drawer =
+    document.querySelector(
+      "#cart-drawer"
+    );
+
+  const overlay =
+    document.querySelector(
+      "#cart-overlay"
+    );
+
+  if (!drawer || !overlay) {
+    return;
+  }
+
+  drawer.classList.remove(
+    "open"
+  );
+
+  drawer.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  document.body.classList.remove(
+    "cart-open"
+  );
+
+  window.setTimeout(
+    () => {
+      if (
+        !drawer.classList.contains(
+          "open"
+        )
+      ) {
+        overlay.hidden = true;
+      }
+    },
+    220
+  );
+}
+
+/* =========================================================
+   RELOJ Y HORARIO
+   ========================================================= */
+
+/**
+ * Inicia el reloj de Ecuador.
+ */
+function initializeClock() {
+  updateEcuadorClock();
+
+  if (appState.clockTimer) {
+    window.clearInterval(
+      appState.clockTimer
+    );
+  }
+
+  appState.clockTimer =
+    window.setInterval(
+      () => {
+        updateEcuadorClock();
+        renderBusinessStatus();
+      },
+      1000
+    );
+}
+
+/**
+ * Actualiza el reloj de Ecuador.
+ */
+function updateEcuadorClock() {
+  const element =
+    document.querySelector(
+      "#ecuador-clock"
+    );
+
+  if (!element) {
+    return;
+  }
+
+  const now = new Date();
+
+  const formatted =
+    new Intl.DateTimeFormat(
+      "es-EC",
+      {
+        timeZone:
+          "America/Guayaquil",
+        weekday:
+          "long",
+        year:
+          "numeric",
+        month:
+          "long",
+        day:
+          "numeric",
+        hour:
+          "numeric",
+        minute:
+          "2-digit",
+        second:
+          "2-digit",
+        hour12:
+          true
+      }
+    ).format(now);
+
+  element.textContent =
+    `🕒 Hora Ecuador · ${formatted}`;
+}
+
+/**
+ * Calcula y muestra si el restaurante está abierto.
+ *
+ * Horario configurado:
+ * - Lunes a jueves: 17:00 a 22:00
+ * - Viernes: 17:00 a 23:00
+ * - Sábado: 12:00 a 23:00
+ * - Domingo: 12:00 a 21:00
+ */
+function renderBusinessStatus() {
+  const element =
+    document.querySelector(
+      "#business-status"
+    );
+
+  if (!element) {
+    return;
+  }
+
+  const now = getEcuadorDateParts();
+
+  const schedule = {
+    0: {
+      open: 12 * 60,
+      close: 21 * 60,
+      label: "domingo 12:00 a 21:00"
+    },
+    1: {
+      open: 17 * 60,
+      close: 22 * 60,
+      label: "lunes 17:00 a 22:00"
+    },
+    2: {
+      open: 17 * 60,
+      close: 22 * 60,
+      label: "martes 17:00 a 22:00"
+    },
+    3: {
+      open: 17 * 60,
+      close: 22 * 60,
+      label: "miércoles 17:00 a 22:00"
+    },
+    4: {
+      open: 17 * 60,
+      close: 22 * 60,
+      label: "jueves 17:00 a 22:00"
+    },
+    5: {
+      open: 17 * 60,
+      close: 23 * 60,
+      label: "viernes 17:00 a 23:00"
+    },
+    6: {
+      open: 12 * 60,
+      close: 23 * 60,
+      label: "sábado 12:00 a 23:00"
+    }
+  };
+
+  const today =
+    schedule[now.weekday];
+
+  const currentMinutes =
+    now.hour * 60 +
+    now.minute;
+
+  const isOpen =
+    currentMinutes >=
+      today.open &&
+    currentMinutes <
+      today.close;
+
+  element.classList.toggle(
+    "open",
+    isOpen
+  );
+
+  element.classList.toggle(
+    "closed",
+    !isOpen
+  );
+
+  element.textContent =
+    isOpen
+      ? `Abierto ahora · ${today.label}`
+      : `Cerrado ahora · horario ${today.label}`;
+}
+
+/**
+ * Obtiene las partes actuales de fecha y hora en Ecuador.
+ *
+ * @returns {{
+ *   weekday:number,
+ *   hour:number,
+ *   minute:number
+ * }}
+ */
+function getEcuadorDateParts() {
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          "America/Guayaquil",
+        weekday:
+          "short",
+        hour:
+          "2-digit",
+        minute:
+          "2-digit",
+        hour12:
+          false
+      }
+    );
+
+  const parts =
+    formatter.formatToParts(
+      new Date()
+    );
+
+  const weekdayText =
+    parts.find(
+      (part) =>
+        part.type ===
+        "weekday"
+    )?.value;
+
+  const weekdayMap = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6
+  };
+
+  return {
+    weekday:
+      weekdayMap[
+        weekdayText
+      ] ?? 0,
+
+    hour:
+      Number(
+        parts.find(
+          (part) =>
+            part.type ===
+            "hour"
+        )?.value ?? 0
+      ),
+
+    minute:
+      Number(
+        parts.find(
+          (part) =>
+            part.type ===
+            "minute"
+        )?.value ?? 0
+      )
+  };
+}
+
+/* =========================================================
+   PARÁMETROS DE URL
+   ========================================================= */
+
+/**
+ * Detecta el modo administrativo o la mesa del QR.
  */
 function detectURLMode() {
   const parameters =
@@ -174,27 +638,38 @@ function detectURLMode() {
       window.location.search
     );
 
-  const mode = String(
-    parameters.get("modo") || ""
-  )
-    .trim()
-    .toLowerCase();
+  const mode =
+    String(
+      parameters.get(
+        "modo"
+      ) || ""
+    )
+      .trim()
+      .toLowerCase();
 
   appState.adminMode =
     mode === "admin" ||
     mode === "personal";
 
   if (appState.adminMode) {
-    appState.qrTableNumber = null;
-    appState.qrTable = null;
+    appState.qrTableNumber =
+      null;
+
+    appState.qrTable =
+      null;
+
     return;
   }
 
   const tableParameter =
-    parameters.get("mesa");
+    parameters.get(
+      "mesa"
+    );
 
   if (!tableParameter) {
-    appState.qrTableNumber = null;
+    appState.qrTableNumber =
+      null;
+
     return;
   }
 
@@ -205,10 +680,13 @@ function detectURLMode() {
     );
 
   if (
-    !Number.isInteger(tableNumber) ||
+    !Number.isInteger(
+      tableNumber
+    ) ||
     tableNumber <= 0
   ) {
-    appState.qrTableNumber = null;
+    appState.qrTableNumber =
+      null;
 
     showOrderMessage(
       "El código QR contiene un número de mesa no válido."
@@ -222,7 +700,7 @@ function detectURLMode() {
 }
 
 /**
- * Aplica el modo detectado en la URL.
+ * Aplica la configuración detectada.
  */
 function applyURLConfiguration() {
   if (appState.adminMode) {
@@ -235,7 +713,7 @@ function applyURLConfiguration() {
 }
 
 /**
- * Habilita la selección manual.
+ * Habilita la toma manual.
  */
 function enableManualOrderMode() {
   const orderType =
@@ -249,18 +727,21 @@ function enableManualOrderMode() {
     );
 
   if (orderType) {
-    orderType.disabled = false;
+    orderType.disabled =
+      false;
   }
 
   if (tableSelect) {
-    tableSelect.disabled = false;
+    tableSelect.disabled =
+      false;
   }
 
-  appState.qrTable = null;
+  appState.qrTable =
+    null;
 }
 
 /**
- * Fija la mesa obtenida desde el QR.
+ * Aplica la mesa indicada por QR.
  */
 function applyQRTable() {
   if (!appState.qrTableNumber) {
@@ -271,7 +752,9 @@ function applyQRTable() {
   const table =
     appState.tables.find(
       (item) =>
-        Number(item.numero) ===
+        Number(
+          item.numero
+        ) ===
         Number(
           appState.qrTableNumber
         )
@@ -282,13 +765,16 @@ function applyQRTable() {
       `La Mesa ${appState.qrTableNumber} no existe o está desactivada.`
     );
 
-    appState.qrTable = null;
+    appState.qrTable =
+      null;
+
     enableManualOrderMode();
 
     return;
   }
 
-  appState.qrTable = table;
+  appState.qrTable =
+    table;
 
   const orderType =
     document.querySelector(
@@ -301,22 +787,28 @@ function applyQRTable() {
     );
 
   if (orderType) {
-    orderType.value = "mesa";
-    orderType.disabled = true;
+    orderType.value =
+      "mesa";
+
+    orderType.disabled =
+      true;
   }
 
   if (tableSelect) {
     tableSelect.value =
-      String(table.id);
+      String(
+        table.id
+      );
 
-    tableSelect.disabled = true;
+    tableSelect.disabled =
+      true;
   }
 
   renderQRTableNotice();
 }
 
 /**
- * Muestra aviso del modo de toma manual.
+ * Muestra el aviso de modo manual.
  */
 function renderAdminModeNotice() {
   const tableField =
@@ -331,7 +823,9 @@ function renderAdminModeNotice() {
   removeModeNotices();
 
   const notice =
-    document.createElement("p");
+    document.createElement(
+      "p"
+    );
 
   notice.id =
     "admin-mode-notice";
@@ -348,7 +842,7 @@ function renderAdminModeNotice() {
 }
 
 /**
- * Muestra aviso de mesa detectada.
+ * Muestra el aviso de mesa automática.
  */
 function renderQRTableNotice() {
   if (!appState.qrTable) {
@@ -371,7 +865,9 @@ function renderQRTableNotice() {
     `Mesa ${appState.qrTable.numero}`;
 
   const notice =
-    document.createElement("p");
+    document.createElement(
+      "p"
+    );
 
   notice.id =
     "qr-table-notice";
@@ -394,24 +890,26 @@ function removeModeNotices() {
   [
     "#qr-table-notice",
     "#admin-mode-notice"
-  ].forEach((selector) => {
-    const element =
-      document.querySelector(
-        selector
-      );
+  ].forEach(
+    (selector) => {
+      const element =
+        document.querySelector(
+          selector
+        );
 
-    if (element) {
-      element.remove();
+      if (element) {
+        element.remove();
+      }
     }
-  });
+  );
 }
 
 /* =========================================================
-   MENÚ Y CATEGORÍAS
+   MENÚ
    ========================================================= */
 
 /**
- * Carga el menú desde Supabase.
+ * Carga los productos.
  *
  * @returns {Promise<void>}
  */
@@ -420,41 +918,55 @@ async function loadMenu() {
     return;
   }
 
-  appState.loadingMenu = true;
+  appState.loadingMenu =
+    true;
 
   try {
     const {
       data,
       error
-    } = await window.toscanaSupabase
-      .from("productos")
-      .select(`
-        id,
-        nombre,
-        descripcion,
-        precio,
-        categoria_id,
-        imagen_url,
-        categorias (
+    } =
+      await window.toscanaSupabase
+        .from(
+          "productos"
+        )
+        .select(`
           id,
           nombre,
-          orden
+          descripcion,
+          precio,
+          categoria_id,
+          imagen_url,
+          categorias (
+            id,
+            nombre,
+            orden
+          )
+        `)
+        .eq(
+          "activo",
+          true
         )
-      `)
-      .eq("activo", true)
-      .eq("disponible", true)
-      .order("nombre");
+        .eq(
+          "disponible",
+          true
+        )
+        .order(
+          "nombre"
+        );
 
     if (error) {
       console.warn(
-        "No se pudo cargar el menú desde Supabase. Se intentará utilizar el catálogo local.",
+        "No se pudo cargar Supabase. Se intentará utilizar el catálogo local.",
         error
       );
 
       await loadFallbackMenu();
     } else {
       appState.menu =
-        Array.isArray(data)
+        Array.isArray(
+          data
+        )
           ? data.map(
               normalizeSupabaseProduct
             )
@@ -480,17 +992,20 @@ async function loadMenu() {
 
     throw error;
   } finally {
-    appState.loadingMenu = false;
+    appState.loadingMenu =
+      false;
   }
 }
 
 /**
- * Normaliza un producto recibido desde Supabase.
+ * Normaliza un producto.
  *
  * @param {object} product
  * @returns {object}
  */
-function normalizeSupabaseProduct(product) {
+function normalizeSupabaseProduct(
+  product
+) {
   return {
     ...product,
 
@@ -507,16 +1022,19 @@ function normalizeSupabaseProduct(product) {
 
     precio:
       Number(
-        product.precio || 0
+        product.precio ||
+        0
       ),
 
     categoria:
-      product.categorias?.nombre ||
+      product.categorias
+        ?.nombre ||
       "Otros",
 
     categoria_orden:
       Number(
-        product.categorias?.orden ??
+        product.categorias
+          ?.orden ??
         999
       ),
 
@@ -527,17 +1045,19 @@ function normalizeSupabaseProduct(product) {
 }
 
 /**
- * Carga el menú local de respaldo.
+ * Carga el menú local.
  *
  * @returns {Promise<void>}
  */
 async function loadFallbackMenu() {
-  const response = await fetch(
-    "data/menu.json",
-    {
-      cache: "no-store"
-    }
-  );
+  const response =
+    await fetch(
+      "data/menu.json",
+      {
+        cache:
+          "no-store"
+      }
+    );
 
   if (!response.ok) {
     throw new Error(
@@ -548,7 +1068,7 @@ async function loadFallbackMenu() {
   const fallback =
     await response.json();
 
-  const fallbackProducts =
+  const products =
     Array.isArray(
       fallback.productos
     )
@@ -556,35 +1076,27 @@ async function loadFallbackMenu() {
       : [];
 
   appState.menu =
-    fallbackProducts.map(
+    products.map(
       (product) => ({
         ...product,
 
-        id:
-          product.id,
-
-        nombre:
-          product.nombre ||
-          "Producto",
-
-        descripcion:
-          product.descripcion ||
-          "",
-
         precio:
           Number(
-            product.precio || 0
+            product.precio ||
+            0
           ),
 
         categoria:
           product.categoria ||
-          product.categorias?.nombre ||
+          product.categorias
+            ?.nombre ||
           "Otros",
 
         categoria_orden:
           Number(
             product.categoria_orden ??
-            product.categorias?.orden ??
+            product.categorias
+              ?.orden ??
             999
           ),
 
@@ -596,7 +1108,7 @@ async function loadFallbackMenu() {
 }
 
 /**
- * Construye las categorías únicas.
+ * Construye las categorías.
  */
 function buildCategories() {
   const categoryMap =
@@ -657,10 +1169,12 @@ function buildCategories() {
           );
         }
 
-        return firstCategory.name.localeCompare(
-          secondCategory.name,
-          "es"
-        );
+        return firstCategory
+          .name
+          .localeCompare(
+            secondCategory.name,
+            "es"
+          );
       }
     );
 
@@ -680,7 +1194,7 @@ function buildCategories() {
 }
 
 /**
- * Renderiza los botones de categorías.
+ * Renderiza las categorías.
  */
 function renderCategoryNavigation() {
   const navigation =
@@ -693,24 +1207,31 @@ function renderCategoryNavigation() {
   }
 
   const allButton =
-    createCategoryButton({
-      key: "todos",
-      name: "Todos",
-      icon: "▦"
-    });
+    createCategoryButton(
+      {
+        key:
+          "todos",
+        name:
+          "Todos",
+        icon:
+          "▦"
+      }
+    );
 
   const categoryButtons =
     appState.categories
       .map(
         (category) =>
-          createCategoryButton({
-            key:
-              category.key,
-            name:
-              category.name,
-            icon:
-              ""
-          })
+          createCategoryButton(
+            {
+              key:
+                category.key,
+              name:
+                category.name,
+              icon:
+                ""
+            }
+          )
       )
       .join("");
 
@@ -722,43 +1243,32 @@ function renderCategoryNavigation() {
     .querySelectorAll(
       "[data-category-filter]"
     )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        () => {
-          const selectedCategory =
-            button.dataset
-              .categoryFilter ||
-            "todos";
+    .forEach(
+      (button) => {
+        button.addEventListener(
+          "click",
+          () => {
+            appState.activeCategory =
+              button.dataset
+                .categoryFilter ||
+              "todos";
 
-          if (
-            selectedCategory ===
-            appState.activeCategory
-          ) {
-            return;
+            renderCategoryNavigation();
+            renderMenu();
+
+            window.requestAnimationFrame(
+              scrollActiveCategoryIntoView
+            );
           }
-
-          appState.activeCategory =
-            selectedCategory;
-
-          renderCategoryNavigation();
-          renderMenu();
-
-          window.requestAnimationFrame(
-            scrollActiveCategoryIntoView
-          );
-        }
-      );
-    });
+        );
+      }
+    );
 }
 
 /**
- * Genera un botón de categoría.
+ * Genera botón de categoría.
  *
  * @param {object} options
- * @param {string} options.key
- * @param {string} options.name
- * @param {string} options.icon
  * @returns {string}
  */
 function createCategoryButton({
@@ -797,14 +1307,13 @@ function createCategoryButton({
       }"
     >
       ${iconHTML}
-
       ${escapeHTML(name)}
     </button>
   `;
 }
 
 /**
- * Mantiene visible la categoría seleccionada.
+ * Centra el filtro activo.
  */
 function scrollActiveCategoryIntoView() {
   const activeButton =
@@ -812,19 +1321,20 @@ function scrollActiveCategoryIntoView() {
       ".category-filter.active"
     );
 
-  if (!activeButton) {
-    return;
-  }
-
-  activeButton.scrollIntoView({
-    behavior: "smooth",
-    block: "nearest",
-    inline: "center"
-  });
+  activeButton?.scrollIntoView(
+    {
+      behavior:
+        "smooth",
+      block:
+        "nearest",
+      inline:
+        "center"
+    }
+  );
 }
 
 /**
- * Filtra y renderiza productos.
+ * Renderiza productos filtrados.
  */
 function renderMenu() {
   const container =
@@ -848,7 +1358,8 @@ function renderMenu() {
 
   const query =
     normalizeSearchText(
-      searchInput?.value || ""
+      searchInput?.value ||
+      ""
     );
 
   const filteredProducts =
@@ -895,7 +1406,8 @@ function renderMenu() {
   );
 
   if (
-    filteredProducts.length === 0
+    filteredProducts.length ===
+    0
   ) {
     container.innerHTML = `
       <div class="menu-empty">
@@ -915,7 +1427,9 @@ function renderMenu() {
   container.innerHTML = `
     <div class="products-grid">
       ${filteredProducts
-        .map(createProductCard)
+        .map(
+          createProductCard
+        )
         .join("")}
     </div>
   `;
@@ -926,16 +1440,16 @@ function renderMenu() {
 }
 
 /**
- * Actualiza el encabezado de resultados.
+ * Actualiza el contador de resultados.
  *
  * @param {number} count
- * @param {HTMLElement|null} resultsLabel
+ * @param {HTMLElement|null} element
  */
 function updateResultsLabel(
   count,
-  resultsLabel
+  element
 ) {
-  if (!resultsLabel) {
+  if (!element) {
     return;
   }
 
@@ -955,17 +1469,19 @@ function updateResultsLabel(
       ? "1 producto"
       : `${count} productos`;
 
-  resultsLabel.textContent =
+  element.textContent =
     `${categoryName} · ${productText}`;
 }
 
 /**
- * Genera una tarjeta de producto.
+ * Genera una tarjeta.
  *
  * @param {object} product
  * @returns {string}
  */
-function createProductCard(product) {
+function createProductCard(
+  product
+) {
   const imageHTML =
     product.imagen_url
       ? `
@@ -994,12 +1510,7 @@ function createProductCard(product) {
       `;
 
   return `
-    <article
-      class="product-card"
-      data-product-card="${escapeHTML(
-        product.id
-      )}"
-    >
+    <article class="product-card">
       ${imageHTML}
 
       <div class="product-card-content">
@@ -1036,9 +1547,6 @@ function createProductCard(product) {
           data-add-product="${escapeHTML(
             product.id
           )}"
-          aria-label="Agregar ${escapeHTML(
-            product.nombre
-          )} al pedido"
         >
           Agregar
         </button>
@@ -1048,41 +1556,44 @@ function createProductCard(product) {
 }
 
 /**
- * Registra eventos de los productos.
+ * Registra eventos de productos.
  *
  * @param {HTMLElement} container
  */
-function attachProductEvents(container) {
+function attachProductEvents(
+  container
+) {
   container
     .querySelectorAll(
       "[data-add-product]"
     )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        () => {
-          const productId =
-            button.dataset
-              .addProduct;
+    .forEach(
+      (button) => {
+        button.addEventListener(
+          "click",
+          () => {
+            addProduct(
+              button.dataset
+                .addProduct
+            );
 
-          addProduct(
-            productId
-          );
-
-          animateAddButton(
-            button
-          );
-        }
-      );
-    });
+            animateAddButton(
+              button
+            );
+          }
+        );
+      }
+    );
 }
 
 /**
- * Muestra una respuesta breve al agregar.
+ * Anima el botón Agregar.
  *
  * @param {HTMLButtonElement} button
  */
-function animateAddButton(button) {
+function animateAddButton(
+  button
+) {
   const originalText =
     button.textContent;
 
@@ -1100,16 +1611,18 @@ function animateAddButton(button) {
       button.disabled =
         false;
     },
-    550
+    500
   );
 }
 
 /**
- * Muestra un error en el área del menú.
+ * Renderiza error del menú.
  *
  * @param {string} message
  */
-function renderMenuError(message) {
+function renderMenuError(
+  message
+) {
   const container =
     document.querySelector(
       "#menu-container"
@@ -1126,9 +1639,7 @@ function renderMenuError(message) {
       </strong>
 
       <p>
-        ${escapeHTML(
-          message
-        )}
+        ${escapeHTML(message)}
       </p>
     </div>
   `;
@@ -1139,7 +1650,7 @@ function renderMenuError(message) {
    ========================================================= */
 
 /**
- * Carga las mesas activas.
+ * Carga mesas activas.
  *
  * @returns {Promise<void>}
  */
@@ -1148,33 +1659,39 @@ async function loadTables() {
     return;
   }
 
-  appState.loadingTables = true;
+  appState.loadingTables =
+    true;
 
   try {
     const {
       data,
       error
-    } = await window.toscanaSupabase
-      .from("mesas")
-      .select(
-        "id,numero,nombre,capacidad"
-      )
-      .eq("activa", true)
-      .order("numero");
+    } =
+      await window.toscanaSupabase
+        .from(
+          "mesas"
+        )
+        .select(
+          "id,numero,nombre,capacidad"
+        )
+        .eq(
+          "activa",
+          true
+        )
+        .order(
+          "numero"
+        );
 
     if (error) {
-      console.error(
-        "Error al cargar mesas:",
-        error
-      );
-
       throw new Error(
         "No fue posible cargar las mesas."
       );
     }
 
     appState.tables =
-      Array.isArray(data)
+      Array.isArray(
+        data
+      )
         ? data
         : [];
 
@@ -1186,7 +1703,7 @@ async function loadTables() {
 }
 
 /**
- * Renderiza el selector de mesas.
+ * Renderiza las mesas.
  */
 function renderTableOptions() {
   const tableSelect =
@@ -1199,7 +1716,8 @@ function renderTableOptions() {
   }
 
   if (
-    appState.tables.length === 0
+    appState.tables.length ===
+    0
   ) {
     tableSelect.innerHTML = `
       <option value="">
@@ -1216,27 +1734,21 @@ function renderTableOptions() {
     </option>
 
     ${appState.tables
-      .map((table) => {
-        const tableLabel =
-          table.nombre ||
-          `Mesa ${table.numero}`;
+      .map(
+        (table) => {
+          const label =
+            table.nombre ||
+            `Mesa ${table.numero}`;
 
-        const capacityText =
-          table.capacidad
-            ? ` · ${table.capacidad} personas`
-            : "";
-
-        return `
-          <option value="${escapeHTML(
-            table.id
-          )}">
-            ${escapeHTML(
-              tableLabel +
-              capacityText
-            )}
-          </option>
-        `;
-      })
+          return `
+            <option value="${escapeHTML(
+              table.id
+            )}">
+              ${escapeHTML(label)}
+            </option>
+          `;
+        }
+      )
       .join("")}
   `;
 }
@@ -1246,11 +1758,13 @@ function renderTableOptions() {
    ========================================================= */
 
 /**
- * Agrega un producto al carrito.
+ * Agrega un producto.
  *
  * @param {string|number} productId
  */
-function addProduct(productId) {
+function addProduct(
+  productId
+) {
   const product =
     appState.menu.find(
       (item) =>
@@ -1272,7 +1786,8 @@ function addProduct(productId) {
     );
 
   if (existingItem) {
-    existingItem.cantidad += 1;
+    existingItem.cantidad +=
+      1;
   } else {
     appState.cart.push({
       producto_id:
@@ -1283,7 +1798,8 @@ function addProduct(productId) {
 
       precio:
         Number(
-          product.precio || 0
+          product.precio ||
+          0
         ),
 
       cantidad:
@@ -1299,7 +1815,7 @@ function addProduct(productId) {
 }
 
 /**
- * Cambia la cantidad de un producto.
+ * Modifica cantidad.
  *
  * @param {string|number} productId
  * @param {number} variation
@@ -1340,6 +1856,27 @@ function changeQuantity(
 }
 
 /**
+ * Elimina un producto.
+ *
+ * @param {string|number} productId
+ */
+function removeCartItem(
+  productId
+) {
+  appState.cart =
+    appState.cart.filter(
+      (product) =>
+        String(
+          product.producto_id
+        ) !==
+        String(productId)
+    );
+
+  saveCart();
+  renderCart();
+}
+
+/**
  * Renderiza el carrito.
  */
 function renderCart() {
@@ -1353,36 +1890,29 @@ function renderCart() {
       "#cart-empty"
     );
 
-  const totalElement =
-    document.querySelector(
-      "#cart-total"
-    );
-
-  const countElement =
-    document.querySelector(
-      "#cart-count"
-    );
-
   if (
     !cartContainer ||
-    !emptyState ||
-    !totalElement
+    !emptyState
   ) {
     return;
   }
 
   emptyState.hidden =
-    appState.cart.length > 0;
+    appState.cart.length >
+    0;
 
   if (
-    appState.cart.length === 0
+    appState.cart.length ===
+    0
   ) {
     cartContainer.innerHTML =
       "";
   } else {
     cartContainer.innerHTML =
       appState.cart
-        .map(createCartItem)
+        .map(
+          createCartItem
+        )
         .join("");
 
     attachCartEvents(
@@ -1390,20 +1920,7 @@ function renderCart() {
     );
   }
 
-  const totals =
-    calculateCartTotals();
-
-  totalElement.textContent =
-    money(
-      totals.amount
-    );
-
-  if (countElement) {
-    countElement.textContent =
-      String(
-        totals.quantity
-      );
-  }
+  renderCartTotals();
 }
 
 /**
@@ -1412,10 +1929,22 @@ function renderCart() {
  * @param {object} item
  * @returns {string}
  */
-function createCartItem(item) {
+function createCartItem(
+  item
+) {
+  const subtotal =
+    Number(
+      item.precio ||
+      0
+    ) *
+    Number(
+      item.cantidad ||
+      0
+    );
+
   return `
     <article class="cart-item">
-      <div class="cart-item-info">
+      <div class="cart-item-heading">
         <strong>
           ${escapeHTML(
             item.nombre
@@ -1423,41 +1952,45 @@ function createCartItem(item) {
         </strong>
 
         <span>
-          ${money(
-            item.precio
-          )} c/u
+          ${money(subtotal)}
         </span>
       </div>
 
-      <div class="cart-item-controls">
+      <div class="cart-item-footer">
+        <div class="cart-item-controls">
+          <button
+            type="button"
+            data-minus="${escapeHTML(
+              item.producto_id
+            )}"
+          >
+            −
+          </button>
+
+          <strong>
+            ${Number(
+              item.cantidad
+            )}
+          </strong>
+
+          <button
+            type="button"
+            data-plus="${escapeHTML(
+              item.producto_id
+            )}"
+          >
+            +
+          </button>
+        </div>
+
         <button
           type="button"
-          data-minus="${escapeHTML(
+          class="remove-cart-item"
+          data-remove-item="${escapeHTML(
             item.producto_id
           )}"
-          aria-label="Reducir cantidad de ${escapeHTML(
-            item.nombre
-          )}"
         >
-          −
-        </button>
-
-        <strong>
-          ${Number(
-            item.cantidad
-          )}
-        </strong>
-
-        <button
-          type="button"
-          data-plus="${escapeHTML(
-            item.producto_id
-          )}"
-          aria-label="Aumentar cantidad de ${escapeHTML(
-            item.nombre
-          )}"
-        >
-          +
+          Eliminar
         </button>
       </div>
     </article>
@@ -1469,60 +2002,156 @@ function createCartItem(item) {
  *
  * @param {HTMLElement} container
  */
-function attachCartEvents(container) {
+function attachCartEvents(
+  container
+) {
   container
     .querySelectorAll(
       "[data-minus]"
     )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        () => {
-          changeQuantity(
-            button.dataset.minus,
-            -1
-          );
-        }
-      );
-    });
+    .forEach(
+      (button) => {
+        button.addEventListener(
+          "click",
+          () => {
+            changeQuantity(
+              button.dataset.minus,
+              -1
+            );
+          }
+        );
+      }
+    );
 
   container
     .querySelectorAll(
       "[data-plus]"
     )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        () => {
-          changeQuantity(
-            button.dataset.plus,
-            1
-          );
-        }
-      );
-    });
+    .forEach(
+      (button) => {
+        button.addEventListener(
+          "click",
+          () => {
+            changeQuantity(
+              button.dataset.plus,
+              1
+            );
+          }
+        );
+      }
+    );
+
+  container
+    .querySelectorAll(
+      "[data-remove-item]"
+    )
+    .forEach(
+      (button) => {
+        button.addEventListener(
+          "click",
+          () => {
+            removeCartItem(
+              button.dataset
+                .removeItem
+            );
+          }
+        );
+      }
+    );
 }
 
 /**
- * Calcula totales del carrito.
+ * Renderiza subtotal, desechables y total.
+ */
+function renderCartTotals() {
+  const totals =
+    calculateCartTotals();
+
+  const orderType =
+    getCurrentOrderType();
+
+  const disposables =
+    requiresDisposables(
+      orderType
+    )
+      ? DISPOSABLES_COST
+      : 0;
+
+  const total =
+    totals.amount +
+    disposables;
+
+  setText(
+    "#cart-count",
+    totals.quantity
+  );
+
+  setText(
+    "#top-cart-count",
+    totals.quantity
+  );
+
+  setText(
+    "#mobile-cart-count",
+    totals.quantity
+  );
+
+  setText(
+    "#cart-subtotal",
+    money(
+      totals.amount
+    )
+  );
+
+  setText(
+    "#cart-disposables",
+    money(
+      disposables
+    )
+  );
+
+  setText(
+    "#cart-total",
+    money(total)
+  );
+
+  const disposablesRow =
+    document.querySelector(
+      "#disposables-row"
+    );
+
+  if (disposablesRow) {
+    disposablesRow.hidden =
+      disposables <= 0;
+  }
+}
+
+/**
+ * Calcula los totales.
  *
- * @returns {{amount:number, quantity:number}}
+ * @returns {{
+ *   amount:number,
+ *   quantity:number
+ * }}
  */
 function calculateCartTotals() {
   return appState.cart.reduce(
     (totals, item) => {
       const price =
         Number(
-          item.precio || 0
+          item.precio ||
+          0
         );
 
       const quantity =
         Number(
-          item.cantidad || 0
+          item.cantidad ||
+          0
         );
 
       totals.amount +=
-        price * quantity;
+        price *
+        quantity;
 
       totals.quantity +=
         quantity;
@@ -1533,6 +2162,44 @@ function calculateCartTotals() {
       amount: 0,
       quantity: 0
     }
+  );
+}
+
+/**
+ * Devuelve el tipo de pedido seleccionado.
+ *
+ * @returns {string}
+ */
+function getCurrentOrderType() {
+  if (
+    appState.qrTable &&
+    !appState.adminMode
+  ) {
+    return "mesa";
+  }
+
+  return String(
+    document.querySelector(
+      "#order-type"
+    )?.value ||
+    "mesa"
+  );
+}
+
+/**
+ * Indica si aplica desechables.
+ *
+ * @param {string} orderType
+ * @returns {boolean}
+ */
+function requiresDisposables(
+  orderType
+) {
+  return [
+    "para_llevar",
+    "delivery"
+  ].includes(
+    orderType
   );
 }
 
@@ -1589,83 +2256,18 @@ function restoreCart() {
         storedCart
       )
         ? storedCart
-            .filter(
-              isValidStoredCartItem
-            )
-            .map(
-              normalizeStoredCartItem
-            )
         : [];
-  } catch (error) {
-    console.warn(
-      "No fue posible recuperar el carrito:",
-      error
-    );
-
+  } catch {
     appState.cart = [];
   }
 }
 
-/**
- * Valida un registro guardado.
- *
- * @param {object} item
- * @returns {boolean}
- */
-function isValidStoredCartItem(item) {
-  return Boolean(
-    item &&
-    item.producto_id !==
-      undefined &&
-    item.nombre &&
-    Number(item.cantidad) > 0
-  );
-}
-
-/**
- * Normaliza un producto guardado.
- *
- * @param {object} item
- * @returns {object}
- */
-function normalizeStoredCartItem(item) {
-  return {
-    producto_id:
-      item.producto_id,
-
-    nombre:
-      String(
-        item.nombre
-      ),
-
-    precio:
-      Number(
-        item.precio || 0
-      ),
-
-    cantidad:
-      Math.max(
-        1,
-        Number.parseInt(
-          item.cantidad,
-          10
-        ) || 1
-      ),
-
-    observaciones:
-      String(
-        item.observaciones ||
-        ""
-      )
-  };
-}
-
 /* =========================================================
-   FORMULARIO DEL PEDIDO
+   FORMULARIO
    ========================================================= */
 
 /**
- * Muestra u oculta campos según el tipo de pedido.
+ * Muestra u oculta campos.
  */
 function toggleOrderFields() {
   const orderType =
@@ -1692,13 +2294,14 @@ function toggleOrderFields() {
   }
 
   const selectedType =
-    orderType.value;
+    getCurrentOrderType();
 
   tableField.hidden =
     selectedType !== "mesa";
 
   addressField.hidden =
-    selectedType !== "delivery";
+    selectedType !==
+    "delivery";
 
   if (
     appState.qrTable &&
@@ -1724,7 +2327,9 @@ function toggleOrderFields() {
  * @returns {Promise<void>}
  */
 async function submitOrder() {
-  if (appState.submittingOrder) {
+  if (
+    appState.submittingOrder
+  ) {
     return;
   }
 
@@ -1756,26 +2361,18 @@ async function submitOrder() {
   );
 
   try {
-    const payload =
-      buildOrderPayload(
-        validation
-      );
-
     const {
       data,
       error
     } =
       await window.toscanaSupabase.rpc(
         "crear_pedido",
-        payload
+        buildOrderPayload(
+          validation
+        )
       );
 
     if (error) {
-      console.error(
-        "Error de Supabase al registrar el pedido:",
-        error
-      );
-
       throw new Error(
         error.message ||
         "No se pudo registrar el pedido."
@@ -1784,7 +2381,7 @@ async function submitOrder() {
 
     if (!data) {
       throw new Error(
-        "El pedido fue procesado sin una respuesta válida."
+        "El pedido no devolvió una respuesta válida."
       );
     }
 
@@ -1795,6 +2392,8 @@ async function submitOrder() {
     renderSuccessDialog(
       data
     );
+
+    closeCart();
   } catch (error) {
     console.error(
       "Error al registrar el pedido:",
@@ -1818,13 +2417,14 @@ async function submitOrder() {
 }
 
 /**
- * Valida los datos del pedido.
+ * Valida el pedido.
  *
  * @returns {object}
  */
 function validateOrder() {
   if (
-    appState.cart.length === 0
+    appState.cart.length ===
+    0
   ) {
     return {
       valid: false,
@@ -1833,10 +2433,8 @@ function validateOrder() {
     };
   }
 
-  const orderTypeElement =
-    document.querySelector(
-      "#order-type"
-    );
+  const orderType =
+    getCurrentOrderType();
 
   const tableSelect =
     document.querySelector(
@@ -1847,26 +2445,6 @@ function validateOrder() {
     getInputValue(
       "#delivery-address"
     );
-
-  const orderType =
-    appState.qrTable &&
-    !appState.adminMode
-      ? "mesa"
-      : orderTypeElement?.value;
-
-  if (
-    ![
-      "mesa",
-      "para_llevar",
-      "delivery"
-    ].includes(orderType)
-  ) {
-    return {
-      valid: false,
-      message:
-        "Selecciona un tipo de pedido válido."
-    };
-  }
 
   const tableId =
     orderType === "mesa"
@@ -1889,7 +2467,8 @@ function validateOrder() {
   }
 
   if (
-    orderType === "delivery" &&
+    orderType ===
+      "delivery" &&
     !address
   ) {
     return {
@@ -1900,7 +2479,8 @@ function validateOrder() {
   }
 
   return {
-    valid: true,
+    valid:
+      true,
     orderType,
     tableId,
     address
@@ -1964,34 +2544,19 @@ function buildOrderPayload(
 }
 
 /**
- * Guarda el token del último pedido.
- *
- * @param {unknown} token
- */
-function persistLastOrderToken(token) {
-  if (!token) {
-    return;
-  }
-
-  try {
-    localStorage.setItem(
-      "toscana_ultimo_token",
-      String(token)
-    );
-  } catch (error) {
-    console.warn(
-      "No fue posible guardar el token del pedido:",
-      error
-    );
-  }
-}
-
-/**
- * Abre el diálogo de confirmación.
+ * Muestra la confirmación.
  *
  * @param {object} order
  */
-function renderSuccessDialog(order) {
+function renderSuccessDialog(
+  order
+) {
+  const recargo =
+    Number(
+      order.recargo ||
+      0
+    );
+
   setText(
     "#success-ticket",
     order.ticket ||
@@ -2007,11 +2572,33 @@ function renderSuccessDialog(order) {
   );
 
   setText(
+    "#success-subtotal",
+    money(
+      order.subtotal
+    )
+  );
+
+  setText(
+    "#success-disposables",
+    money(recargo)
+  );
+
+  setText(
     "#success-total",
     money(
       order.total
     )
   );
+
+  const row =
+    document.querySelector(
+      "#success-disposables-row"
+    );
+
+  if (row) {
+    row.hidden =
+      recargo <= 0;
+  }
 
   const dialog =
     document.querySelector(
@@ -2027,7 +2614,7 @@ function renderSuccessDialog(order) {
 }
 
 /**
- * Inicia un pedido nuevo.
+ * Inicia un nuevo pedido.
  */
 function startNewOrder() {
   clearCart();
@@ -2045,20 +2632,11 @@ function startNewOrder() {
 
   applyURLConfiguration();
   toggleOrderFields();
-
-  const menuSection =
-    document.querySelector(
-      ".menu-section"
-    );
-
-  menuSection?.scrollIntoView({
-    behavior: "smooth",
-    block: "start"
-  });
+  showMenuView();
 }
 
 /**
- * Limpia campos del cliente.
+ * Limpia campos.
  */
 function clearCustomerFields() {
   [
@@ -2066,47 +2644,49 @@ function clearCustomerFields() {
     "#customer-phone",
     "#delivery-address",
     "#order-notes"
-  ].forEach((selector) => {
-    const element =
-      document.querySelector(
-        selector
-      );
+  ].forEach(
+    (selector) => {
+      const element =
+        document.querySelector(
+          selector
+        );
 
-    if (element) {
-      element.value = "";
+      if (element) {
+        element.value =
+          "";
+      }
     }
-  });
+  );
 }
 
 /* =========================================================
    UTILIDADES
    ========================================================= */
 
-/**
- * Normaliza el texto de búsqueda.
- *
- * @param {unknown} value
- * @returns {string}
- */
-function normalizeSearchText(value) {
-  return String(value || "")
+function normalizeSearchText(
+  value
+) {
+  return String(
+    value ||
+    ""
+  )
     .trim()
     .toLowerCase()
-    .normalize("NFD")
+    .normalize(
+      "NFD"
+    )
     .replace(
       /[\u0300-\u036f]/g,
       ""
     );
 }
 
-/**
- * Normaliza el nombre de categoría.
- *
- * @param {unknown} value
- * @returns {string}
- */
-function normalizeCategory(value) {
-  return normalizeSearchText(value)
+function normalizeCategory(
+  value
+) {
+  return normalizeSearchText(
+    value
+  )
     .replace(
       /[^a-z0-9]+/g,
       "-"
@@ -2117,30 +2697,21 @@ function normalizeCategory(value) {
     );
 }
 
-/**
- * Obtiene el valor limpio de un campo.
- *
- * @param {string} selector
- * @returns {string}
- */
-function getInputValue(selector) {
-  const element =
+function getInputValue(
+  selector
+) {
+  return String(
     document.querySelector(
       selector
-    );
-
-  return String(
-    element?.value || ""
+    )?.value ||
+    ""
   ).trim();
 }
 
-/**
- * Asigna texto a un elemento.
- *
- * @param {string} selector
- * @param {unknown} value
- */
-function setText(selector, value) {
+function setText(
+  selector,
+  value
+) {
   const element =
     document.querySelector(
       selector
@@ -2148,17 +2719,13 @@ function setText(selector, value) {
 
   if (element) {
     element.textContent =
-      String(value ?? "");
+      String(
+        value ??
+        ""
+      );
   }
 }
 
-/**
- * Controla el estado visual de un botón.
- *
- * @param {HTMLButtonElement|null} button
- * @param {boolean} loading
- * @param {string} label
- */
 function setButtonLoading(
   button,
   loading,
@@ -2175,12 +2742,9 @@ function setButtonLoading(
     label;
 }
 
-/**
- * Muestra mensaje del pedido.
- *
- * @param {string} message
- */
-function showOrderMessage(message) {
+function showOrderMessage(
+  message
+) {
   const element =
     document.querySelector(
       "#order-message"
@@ -2191,15 +2755,17 @@ function showOrderMessage(message) {
   }
 
   element.textContent =
-    String(message || "");
+    String(
+      message ||
+      ""
+    );
 
   element.hidden =
     false;
+
+  openCart();
 }
 
-/**
- * Limpia el mensaje del pedido.
- */
 function clearOrderMessage() {
   const element =
     document.querySelector(
@@ -2210,43 +2776,54 @@ function clearOrderMessage() {
     return;
   }
 
-  element.textContent = "";
-  element.hidden = true;
+  element.textContent =
+    "";
+
+  element.hidden =
+    true;
 }
 
-/**
- * Formatea valores monetarios.
- *
- * @param {unknown} value
- * @returns {string}
- */
-function money(value) {
-  const numericValue =
-    Number(value || 0);
+function persistLastOrderToken(
+  token
+) {
+  if (!token) {
+    return;
+  }
 
-  return new Intl.NumberFormat(
-    "es-EC",
-    {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2
-    }
-  ).format(
-    Number.isFinite(numericValue)
-      ? numericValue
-      : 0
+  localStorage.setItem(
+    "toscana_ultimo_token",
+    String(token)
   );
 }
 
-/**
- * Convierte valores técnicos en texto.
- *
- * @param {unknown} value
- * @returns {string}
- */
+function money(value) {
+  return new Intl.NumberFormat(
+    "es-EC",
+    {
+      style:
+        "currency",
+      currency:
+        "USD",
+      minimumFractionDigits:
+        2
+    }
+  ).format(
+    Number(
+      value ||
+      0
+    )
+  );
+}
+
 function pretty(value) {
-  return String(value || "")
-    .replaceAll("_", " ")
+  return String(
+    value ||
+    ""
+  )
+    .replaceAll(
+      "_",
+      " "
+    )
     .replace(
       /\b\w/g,
       (character) =>
@@ -2254,28 +2831,24 @@ function pretty(value) {
     );
 }
 
-/**
- * Escapa texto para HTML.
- *
- * @param {unknown} value
- * @returns {string}
- */
 function escapeHTML(value) {
-  return String(value ?? "")
-    .replace(
-      /[&<>"']/g,
-      (character) => {
-        const entities = {
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#039;"
-        };
+  return String(
+    value ??
+    ""
+  ).replace(
+    /[&<>"']/g,
+    (character) => {
+      const entities = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      };
 
-        return entities[
-          character
-        ];
-      }
-    );
+      return entities[
+        character
+      ];
+    }
+  );
 }
