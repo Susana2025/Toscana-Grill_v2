@@ -668,6 +668,30 @@ async function loadFallbackMenu() {
   }
 }
 
+
+function resolveProductImageUrl(imageValue) {
+  const rawValue = String(imageValue || "").trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  if (
+    rawValue.startsWith("http://") ||
+    rawValue.startsWith("https://") ||
+    rawValue.startsWith("data:") ||
+    rawValue.startsWith("blob:")
+  ) {
+    return rawValue;
+  }
+
+  const cleanedPath = rawValue
+    .replace(/\\/g, "/")
+    .replace(/^\.?\//, "");
+
+  return new URL(cleanedPath, window.location.href).href;
+}
+
 function normalizeProducts(products) {
   return products
     .map((product) => {
@@ -690,6 +714,7 @@ function normalizeProducts(products) {
 
       return {
         id: Number(product.id),
+
         name: String(
           product.nombre ||
           product.name ||
@@ -708,13 +733,16 @@ function normalizeProducts(products) {
           0
         ),
 
-        imageUrl:
+        imageUrl: resolveProductImageUrl(
           product.imagen_url ||
           product.image_url ||
           product.imagen ||
-          "",
+          product.foto ||
+          ""
+        ),
 
         categoryId: String(categoryId),
+
         categoryName: String(categoryName),
 
         categoryOrder: Number(
