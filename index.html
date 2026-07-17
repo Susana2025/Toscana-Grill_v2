@@ -168,8 +168,8 @@
           </h3>
 
           <p>
-            Agrega productos a tu pedido y selecciona
-            cómo deseas recibirlo.
+            Agrega productos a tu pedido y selecciona cómo
+            deseas recibirlo.
           </p>
         </div>
 
@@ -345,9 +345,7 @@
       class="order-form"
       novalidate
     >
-      <!-- ================================================
-           TIPO DE PEDIDO
-           ================================================ -->
+      <!-- TIPO DE PEDIDO -->
 
       <div class="form-field">
         <label for="orderType">
@@ -373,9 +371,7 @@
         </select>
       </div>
 
-      <!-- ================================================
-           SELECCIÓN DE MESA
-           ================================================ -->
+      <!-- MESA -->
 
       <div
         id="tableField"
@@ -399,14 +395,12 @@
           class="qr-table-notice"
           hidden
         >
-          La mesa fue identificada automáticamente
-          mediante el código QR.
+          La mesa fue identificada automáticamente mediante
+          el código QR.
         </p>
       </div>
 
-      <!-- ================================================
-           DATOS DEL CLIENTE
-           ================================================ -->
+      <!-- CLIENTE -->
 
       <div class="form-field">
         <label for="customerName">
@@ -429,6 +423,7 @@
       >
         <label for="customerPhone">
           Teléfono
+
           <span
             id="phoneRequiredText"
             hidden
@@ -448,14 +443,12 @@
         >
 
         <small id="phoneHelpText">
-          Para delivery se requiere un número móvil
-          ecuatoriano válido.
+          Para delivery se requiere un número móvil ecuatoriano
+          válido.
         </small>
       </div>
 
-      <!-- ================================================
-           CAMPOS EXCLUSIVOS DE DELIVERY
-           ================================================ -->
+      <!-- DELIVERY -->
 
       <section
         id="deliveryFields"
@@ -510,9 +503,9 @@
           </strong>
 
           <p>
-            Para entregas fuera de la zona urbana,
-            Toscana Grill confirmará el costo mediante
-            el número telefónico registrado.
+            Para entregas fuera de la zona urbana, Toscana Grill
+            confirmará el costo mediante el número telefónico
+            registrado.
           </p>
 
           <p>
@@ -550,9 +543,7 @@
         </label>
       </section>
 
-      <!-- ================================================
-           OBSERVACIONES GENERALES
-           ================================================ -->
+      <!-- OBSERVACIONES -->
 
       <div class="form-field">
         <label for="orderNotes">
@@ -567,9 +558,7 @@
         ></textarea>
       </div>
 
-      <!-- ================================================
-           RESUMEN ECONÓMICO
-           ================================================ -->
+      <!-- RESUMEN ECONÓMICO -->
 
       <section
         class="cart-summary"
@@ -732,9 +721,11 @@
 
     <p class="ticket-help">
       Guarda el ticket
+
       <strong id="successTicketReminder">
         TG-000000-0000
       </strong>
+
       para identificar tu pedido.
     </p>
 
@@ -967,8 +958,8 @@
         class="preliminary-total-notice"
         hidden
       >
-        El costo del delivery todavía debe ser confirmado
-        por el restaurante.
+        El costo del delivery todavía debe ser confirmado por
+        el restaurante.
       </p>
 
       <section class="tracking-items-section">
@@ -990,7 +981,13 @@
   </dialog>
 
   <!-- ======================================================
-       SUPABASE Y APLICACIÓN
+       LIBRERÍA Y CONEXIÓN CON SUPABASE
+
+       El orden es obligatorio:
+       1. Librería oficial
+       2. Credenciales públicas
+       3. Creación del cliente
+       4. Aplicación
        ====================================================== -->
 
   <script
@@ -998,7 +995,11 @@
   ></script>
 
   <script
-    src="./js/config.js"
+    src="./js/supabase-config.js"
+  ></script>
+
+  <script
+    src="./js/supabase-client.js"
   ></script>
 
   <script
