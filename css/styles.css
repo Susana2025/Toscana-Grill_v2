@@ -2402,3 +2402,484 @@ img {
       auto !important;
   }
 }
+
+/* =========================================================
+   ACCESO DEL PERSONAL
+   ========================================================= */
+
+.staff-login-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  text-decoration: none;
+}
+
+/* =========================================================
+   ACCESIBILIDAD
+   ========================================================= */
+
+.visually-hidden {
+  position: absolute !important;
+
+  width: 1px !important;
+  height: 1px !important;
+
+  padding: 0 !important;
+  margin: -1px !important;
+
+  overflow: hidden !important;
+
+  clip: rect(0, 0, 0, 0) !important;
+
+  white-space: nowrap !important;
+
+  border: 0 !important;
+}
+
+/* =========================================================
+   DELIVERY
+   ========================================================= */
+
+.delivery-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.delivery-notice {
+  padding: 14px;
+
+  border-radius: 13px;
+
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.delivery-notice strong {
+  display: block;
+
+  margin-bottom: 5px;
+}
+
+.delivery-notice p {
+  margin: 5px 0 0;
+}
+
+.delivery-notice-urban {
+  border:
+    1px solid
+    rgba(98, 213, 143, 0.34);
+
+  background:
+    var(--success-soft);
+
+  color:
+    var(--success);
+}
+
+.delivery-notice-outside {
+  border:
+    1px solid
+    var(--accent-border);
+
+  background:
+    var(--accent-soft);
+
+  color:
+    var(--accent-light);
+}
+
+.delivery-confirmation {
+  display: grid;
+
+  grid-template-columns:
+    auto
+    1fr;
+
+  align-items: flex-start;
+
+  gap: 11px;
+
+  padding: 14px;
+
+  border:
+    1px solid
+    var(--border);
+
+  border-radius: 13px;
+
+  background:
+    rgba(255, 255, 255, 0.025);
+
+  color:
+    var(--text-soft);
+
+  font-size: 0.82rem;
+  line-height: 1.48;
+
+  cursor: pointer;
+}
+
+.delivery-confirmation input {
+  width: 19px;
+  height: 19px;
+
+  margin-top: 2px;
+
+  accent-color:
+    var(--accent);
+}
+
+.form-field small {
+  color: var(--muted);
+
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.preliminary-total-notice {
+  margin:
+    0;
+
+  padding:
+    11px
+    12px;
+
+  border:
+    1px solid
+    var(--accent-border);
+
+  border-radius:
+    11px;
+
+  background:
+    var(--accent-soft);
+
+  color:
+    var(--accent-light);
+
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+/* =========================================================
+   ACCIONES DEL DIÁLOGO
+   ========================================================= */
+
+.success-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.secondary-action-button {
+  width: 100%;
+  min-height: 48px;
+
+  padding:
+    11px
+    16px;
+
+  border:
+    1px solid
+    var(--border);
+
+  border-radius:
+    13px;
+
+  background:
+    var(--surface-light);
+
+  color:
+    var(--text);
+
+  font-weight: 900;
+}
+
+.secondary-action-button:hover {
+  border-color:
+    var(--accent-border);
+
+  color:
+    var(--accent-light);
+}
+
+.success-delivery-message {
+  margin:
+    0
+    0
+    16px;
+
+  padding:
+    12px;
+
+  border:
+    1px solid
+    var(--accent-border);
+
+  border-radius:
+    12px;
+
+  background:
+    var(--accent-soft);
+
+  color:
+    var(--accent-light);
+
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+/* =========================================================
+   DIÁLOGO DE SEGUIMIENTO
+   ========================================================= */
+
+.tracking-dialog {
+  width:
+    min(
+      560px,
+      calc(100vw - 26px)
+    );
+
+  max-height:
+    calc(100dvh - 28px);
+
+  padding: 24px;
+
+  overflow-y: auto;
+
+  border:
+    1px solid
+    var(--border);
+
+  border-radius:
+    var(--radius-large);
+
+  background:
+    linear-gradient(
+      150deg,
+      var(--surface-light),
+      var(--surface)
+    );
+
+  color:
+    var(--text);
+
+  box-shadow:
+    var(--shadow-large);
+}
+
+.tracking-dialog::backdrop {
+  background:
+    rgba(0, 0, 0, 0.82);
+
+  backdrop-filter:
+    blur(5px);
+}
+
+.tracking-dialog-header {
+  display: flex;
+
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 16px;
+}
+
+.tracking-dialog-header h2 {
+  margin:
+    4px
+    0
+    0;
+}
+
+.close-dialog-button {
+  width: 44px;
+  height: 44px;
+
+  display: grid;
+  place-items: center;
+
+  border:
+    1px solid
+    var(--border);
+
+  border-radius:
+    13px;
+
+  background:
+    var(--surface);
+
+  color:
+    var(--text);
+
+  font-size: 1.6rem;
+}
+
+.tracking-introduction {
+  margin:
+    14px
+    0;
+
+  color:
+    var(--muted);
+}
+
+.tracking-form {
+  display: grid;
+  gap: 14px;
+}
+
+.tracking-result {
+  display: grid;
+  gap: 17px;
+
+  margin-top: 22px;
+
+  padding-top: 20px;
+
+  border-top:
+    1px solid
+    var(--border);
+}
+
+.tracking-status-card {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 16px;
+
+  padding: 15px;
+
+  border:
+    1px solid
+    var(--accent-border);
+
+  border-radius:
+    13px;
+
+  background:
+    var(--accent-soft);
+}
+
+.tracking-status-card span {
+  color:
+    var(--text-soft);
+}
+
+.tracking-status-card strong {
+  color:
+    var(--accent-light);
+
+  text-transform:
+    capitalize;
+}
+
+.tracking-details {
+  display: grid;
+
+  gap: 1px;
+
+  overflow: hidden;
+
+  border:
+    1px solid
+    var(--border);
+
+  border-radius:
+    13px;
+
+  background:
+    var(--border);
+}
+
+.tracking-details > div {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 16px;
+
+  padding:
+    12px
+    14px;
+
+  background:
+    #111315;
+}
+
+.tracking-details span {
+  color:
+    var(--muted);
+}
+
+.tracking-total span,
+.tracking-total strong {
+  color:
+    var(--text);
+
+  font-size: 1.08rem;
+}
+
+.tracking-result h3 {
+  margin:
+    0
+    0
+    10px;
+}
+
+.tracking-item {
+  display: grid;
+  gap: 5px;
+
+  padding:
+    12px
+    0;
+
+  border-bottom:
+    1px solid
+    var(--border);
+}
+
+.tracking-item:last-child {
+  border-bottom: 0;
+}
+
+.tracking-item-header {
+  display: flex;
+
+  justify-content: space-between;
+
+  gap: 15px;
+}
+
+.tracking-item p {
+  margin: 0;
+
+  color:
+    var(--muted);
+
+  font-size: 0.8rem;
+}
+
+@media (max-width: 520px) {
+  .tracking-dialog {
+    padding: 19px;
+  }
+
+  .tracking-details > div {
+    align-items: flex-start;
+    flex-direction: column;
+
+    gap: 3px;
+  }
+
+  .tracking-item-header {
+    align-items: flex-start;
+    flex-direction: column;
+
+    gap: 3px;
+  }
+}
