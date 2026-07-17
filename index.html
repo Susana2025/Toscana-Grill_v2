@@ -5,7 +5,7 @@
 
   <meta
     name="viewport"
-    content="width=device-width, initial-scale=1"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
   >
 
   <meta
@@ -15,57 +15,130 @@
 
   <meta
     name="theme-color"
-    content="#090a0b"
+    content="#080909"
   >
 
   <title>Toscana Grill | Menú</title>
 
   <link
     rel="stylesheet"
-    href="css/styles.css?v=6"
+    href="css/styles.css?v=7"
   >
 </head>
 
 <body>
-  <header class="hero">
-    <div class="hero-overlay"></div>
+  <!-- =====================================================
+       PORTADA
+       ===================================================== -->
 
-    <div class="hero-content">
-      <p class="eyebrow">
-        Asados al barril
+  <section
+    id="home-view"
+    class="home-view"
+  >
+    <div class="home-overlay"></div>
+
+    <div class="home-content">
+      <p class="home-badge">
+        <span aria-hidden="true">🔥</span>
+        Cocina típica ecuatoriana
       </p>
 
       <h1>
-        Toscana Grill
+        Toscana
+        <span>Grill</span>
       </h1>
 
-      <p class="hero-description">
-        Selecciona tus productos y registra tu pedido.
+      <p class="home-description">
+        Asados al barril, choripanes, especiales de fin de semana
+        y bebidas. Selecciona tus productos, indica tu mesa y envía
+        el pedido directamente a cocina.
       </p>
 
-      <a
-        class="staff-link"
-        href="admin/login.html"
-      >
-        Acceso del personal
-      </a>
-    </div>
-  </header>
+      <div class="home-actions">
+        <button
+          id="show-menu-button"
+          class="home-primary-button"
+          type="button"
+        >
+          Ver menú
+        </button>
 
-  <main class="page-layout">
-    <section class="menu-section">
-      <header class="menu-heading">
+        <button
+          id="show-cart-button"
+          class="home-secondary-button"
+          type="button"
+        >
+          Ver pedido
+        </button>
+      </div>
+
+      <div class="business-status-card">
+        <p id="ecuador-clock">
+          Hora Ecuador · cargando…
+        </p>
+
+        <strong id="business-status">
+          Consultando horario…
+        </strong>
+      </div>
+    </div>
+  </section>
+
+  <!-- =====================================================
+       MENÚ
+       ===================================================== -->
+
+  <main
+    id="menu-view"
+    class="menu-view"
+    hidden
+  >
+    <header class="menu-topbar">
+      <button
+        id="back-home-button"
+        class="menu-back-button"
+        type="button"
+        aria-label="Volver a la portada"
+      >
+        ←
+      </button>
+
+      <div>
+        <p class="eyebrow">
+          Toscana Grill
+        </p>
+
+        <h2>
+          Nuestro menú
+        </h2>
+      </div>
+
+      <button
+        id="open-cart-top-button"
+        class="menu-cart-button"
+        type="button"
+      >
+        <span aria-hidden="true">🛒</span>
+
+        <span id="top-cart-count">
+          0
+        </span>
+      </button>
+    </header>
+
+    <section class="menu-content">
+      <div class="menu-introduction">
         <div>
           <p class="eyebrow">
-            Nuestro menú
+            Elige tus productos
           </p>
 
-          <h2>
-            Elige tus productos
-          </h2>
+          <h3>
+            ¿Qué deseas ordenar?
+          </h3>
 
-          <p class="menu-description">
-            Selecciona una categoría o busca el producto que deseas.
+          <p>
+            Filtra por categoría o busca un producto específico.
           </p>
         </div>
 
@@ -86,7 +159,7 @@
             ⌕
           </span>
         </div>
-      </header>
+      </div>
 
       <div class="category-bar-wrapper">
         <nav
@@ -119,162 +192,193 @@
         </div>
       </div>
     </section>
+  </main>
 
-    <aside class="cart-panel">
-      <header class="cart-header">
-        <div>
-          <p class="eyebrow">
-            Pedido
-          </p>
+  <!-- =====================================================
+       PANEL DEL PEDIDO
+       ===================================================== -->
 
-          <h2>
-            Tu selección
-          </h2>
-        </div>
+  <div
+    id="cart-overlay"
+    class="cart-overlay"
+    hidden
+  ></div>
 
-        <div class="cart-header-actions">
-          <span
-            id="cart-count"
-            class="cart-count"
-            aria-label="Cantidad de productos agregados"
-          >
-            0
-          </span>
+  <aside
+    id="cart-drawer"
+    class="cart-drawer"
+    aria-hidden="true"
+  >
+    <div class="cart-drawer-handle"></div>
 
-          <button
-            id="clear-cart"
-            class="clear-cart-button"
-            type="button"
-          >
-            Vaciar
-          </button>
-        </div>
-      </header>
-
-      <div
-        id="cart-items"
-        class="cart-items"
-      ></div>
-
-      <div
-        id="cart-empty"
-        class="cart-empty"
-      >
-        <div
-          class="cart-empty-icon"
-          aria-hidden="true"
-        >
-          🛒
-        </div>
-
-        <strong>
-          Tu pedido está vacío
-        </strong>
+    <header class="cart-header">
+      <div>
+        <h2>
+          Tu pedido
+        </h2>
 
         <p>
-          Agrega productos desde el menú.
+          <span id="cart-count">
+            0
+          </span>
+          producto(s)
         </p>
       </div>
 
-      <section class="order-form">
-        <h3>
-          Datos del pedido
-        </h3>
+      <button
+        id="close-cart-button"
+        class="close-cart-button"
+        type="button"
+        aria-label="Cerrar pedido"
+      >
+        ×
+      </button>
+    </header>
 
-        <div class="form-field">
-          <label for="order-type">
-            Tipo de pedido
-          </label>
+    <div
+      id="cart-items"
+      class="cart-items"
+    ></div>
 
-          <select id="order-type">
-            <option value="mesa">
-              Consumo en mesa
-            </option>
+    <div
+      id="cart-empty"
+      class="cart-empty"
+    >
+      <div
+        class="cart-empty-icon"
+        aria-hidden="true"
+      >
+        🛒
+      </div>
 
-            <option value="para_llevar">
-              Para llevar
-            </option>
+      <strong>
+        Tu pedido está vacío
+      </strong>
 
-            <option value="delivery">
-              Delivery
-            </option>
-          </select>
-        </div>
+      <p>
+        Agrega productos desde el menú.
+      </p>
+    </div>
 
-        <div
-          id="table-field"
-          class="form-field"
+    <section class="order-form">
+      <div class="form-field">
+        <label for="order-type">
+          Tipo de pedido
+        </label>
+
+        <select id="order-type">
+          <option value="mesa">
+            Consumo en mesa
+          </option>
+
+          <option value="para_llevar">
+            Para llevar
+          </option>
+
+          <option value="delivery">
+            Delivery
+          </option>
+        </select>
+      </div>
+
+      <div
+        id="table-field"
+        class="form-field"
+      >
+        <label for="table-select">
+          Mesa
+        </label>
+
+        <select id="table-select">
+          <option value="">
+            Cargando mesas…
+          </option>
+        </select>
+      </div>
+
+      <div class="form-field">
+        <label for="customer-name">
+          Nombre del cliente
+        </label>
+
+        <input
+          id="customer-name"
+          type="text"
+          maxlength="100"
+          placeholder="Ej. Henry"
+          autocomplete="name"
         >
-          <label for="table-select">
-            Mesa
-          </label>
+      </div>
 
-          <select id="table-select">
-            <option value="">
-              Cargando mesas…
-            </option>
-          </select>
-        </div>
+      <div class="form-field">
+        <label for="customer-phone">
+          Teléfono
+        </label>
 
-        <div class="form-field">
-          <label for="customer-name">
-            Nombre del cliente
-          </label>
-
-          <input
-            id="customer-name"
-            type="text"
-            maxlength="100"
-            placeholder="Opcional"
-            autocomplete="name"
-          >
-        </div>
-
-        <div class="form-field">
-          <label for="customer-phone">
-            Teléfono
-          </label>
-
-          <input
-            id="customer-phone"
-            type="tel"
-            maxlength="20"
-            inputmode="tel"
-            placeholder="Opcional"
-            autocomplete="tel"
-          >
-        </div>
-
-        <div
-          id="address-field"
-          class="form-field"
-          hidden
+        <input
+          id="customer-phone"
+          type="tel"
+          maxlength="20"
+          inputmode="tel"
+          placeholder="Opcional"
+          autocomplete="tel"
         >
-          <label for="delivery-address">
-            Dirección de entrega
-          </label>
+      </div>
 
-          <textarea
-            id="delivery-address"
-            rows="3"
-            maxlength="500"
-            placeholder="Ingresa la dirección"
-          ></textarea>
-        </div>
+      <div
+        id="address-field"
+        class="form-field"
+        hidden
+      >
+        <label for="delivery-address">
+          Dirección de entrega
+        </label>
 
-        <div class="form-field">
-          <label for="order-notes">
-            Observaciones generales
-          </label>
+        <textarea
+          id="delivery-address"
+          rows="3"
+          maxlength="500"
+          placeholder="Ingresa la dirección"
+        ></textarea>
+      </div>
 
-          <textarea
-            id="order-notes"
-            rows="3"
-            maxlength="500"
-            placeholder="Ej.: sin cebolla, salsa aparte..."
-          ></textarea>
-        </div>
-      </section>
+      <div class="form-field">
+        <label for="order-notes">
+          Observaciones generales
+        </label>
+
+        <textarea
+          id="order-notes"
+          rows="3"
+          maxlength="500"
+          placeholder="Ej. Sin cebolla, salsa aparte..."
+        ></textarea>
+      </div>
+    </section>
+
+    <section class="cart-summary">
+      <div>
+        <span>
+          Subtotal
+        </span>
+
+        <strong id="cart-subtotal">
+          $0,00
+        </strong>
+      </div>
+
+      <div
+        id="disposables-row"
+        hidden
+      >
+        <span>
+          Desechables
+        </span>
+
+        <strong id="cart-disposables">
+          $0,50
+        </strong>
+      </div>
 
       <div class="cart-total">
         <span>
@@ -285,22 +389,52 @@
           $0,00
         </strong>
       </div>
+    </section>
 
-      <p
-        id="order-message"
-        class="order-message"
-        hidden
-      ></p>
+    <p
+      id="order-message"
+      class="order-message"
+      hidden
+    ></p>
 
-      <button
-        id="submit-order"
-        class="primary-button"
-        type="button"
-      >
-        Confirmar pedido
-      </button>
-    </aside>
-  </main>
+    <button
+      id="submit-order"
+      class="primary-button"
+      type="button"
+    >
+      Confirmar pedido
+    </button>
+  </aside>
+
+  <!-- =====================================================
+       BARRA INFERIOR MÓVIL
+       ===================================================== -->
+
+  <button
+    id="mobile-cart-button"
+    class="mobile-cart-button"
+    type="button"
+  >
+    <span aria-hidden="true">
+      🛒
+    </span>
+
+    <strong>
+      Pedido
+    </strong>
+
+    <span>
+      (
+      <span id="mobile-cart-count">
+        0
+      </span>
+      )
+    </span>
+  </button>
+
+  <!-- =====================================================
+       CONFIRMACIÓN
+       ===================================================== -->
 
   <dialog
     id="success-dialog"
@@ -322,7 +456,7 @@
     </h2>
 
     <p class="success-description">
-      Conserva tu ticket para consultar el estado.
+      Tu pedido fue enviado correctamente.
     </p>
 
     <div class="ticket-summary">
@@ -343,6 +477,29 @@
 
         <strong id="success-status">
           —
+        </strong>
+      </div>
+
+      <div>
+        <span>
+          Subtotal
+        </span>
+
+        <strong id="success-subtotal">
+          $0,00
+        </strong>
+      </div>
+
+      <div
+        id="success-disposables-row"
+        hidden
+      >
+        <span>
+          Desechables
+        </span>
+
+        <strong id="success-disposables">
+          $0,50
         </strong>
       </div>
 
@@ -370,6 +527,6 @@
 
   <script src="js/supabase-config.js?v=1"></script>
   <script src="js/supabase-client.js?v=1"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="js/app.js?v=8"></script>
 </body>
 </html>
