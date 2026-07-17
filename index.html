@@ -34,7 +34,7 @@
 
 <body>
   <!-- ======================================================
-       PORTADA
+       PORTADA PRINCIPAL
        ====================================================== -->
 
   <main
@@ -112,7 +112,7 @@
   </main>
 
   <!-- ======================================================
-       MENÚ
+       VISTA DEL MENÚ
        ====================================================== -->
 
   <main
@@ -241,7 +241,7 @@
   </main>
 
   <!-- ======================================================
-       BOTÓN INFERIOR DEL PEDIDO
+       BOTÓN INFERIOR DEL CARRITO
        ====================================================== -->
 
   <button
@@ -268,7 +268,7 @@
   </button>
 
   <!-- ======================================================
-       OVERLAY
+       FONDO DEL CARRITO
        ====================================================== -->
 
   <div
@@ -278,13 +278,13 @@
   ></div>
 
   <!-- ======================================================
-       CARRITO / FORMULARIO
+       CARRITO Y FORMULARIO DEL PEDIDO
        ====================================================== -->
 
   <aside
     id="cartDrawer"
     class="cart-drawer"
-    aria-label="Pedido"
+    aria-label="Mi pedido"
     aria-hidden="true"
   >
     <div
@@ -374,7 +374,7 @@
       </div>
 
       <!-- ================================================
-           MESA
+           SELECCIÓN DE MESA
            ================================================ -->
 
       <div
@@ -382,7 +382,7 @@
         class="form-field"
       >
         <label for="tableSelect">
-          Mesa
+          Mesa *
         </label>
 
         <select
@@ -405,7 +405,7 @@
       </div>
 
       <!-- ================================================
-           CLIENTE
+           DATOS DEL CLIENTE
            ================================================ -->
 
       <div class="form-field">
@@ -422,10 +422,6 @@
           autocomplete="name"
         >
       </div>
-
-      <!-- ================================================
-           TELÉFONO
-           ================================================ -->
 
       <div
         id="phoneField"
@@ -458,7 +454,7 @@
       </div>
 
       <!-- ================================================
-           ZONA DE DELIVERY
+           CAMPOS EXCLUSIVOS DE DELIVERY
            ================================================ -->
 
       <section
@@ -510,18 +506,18 @@
           hidden
         >
           <strong>
-            Costo de delivery por confirmar
+            Costo del delivery por confirmar
           </strong>
 
           <p>
             Para entregas fuera de la zona urbana,
-            Toscana Grill confirmará el costo de envío
-            mediante el número telefónico registrado.
+            Toscana Grill confirmará el costo mediante
+            el número telefónico registrado.
           </p>
 
           <p>
             El total mostrado será preliminar y no incluirá
-            todavía el costo final del delivery.
+            todavía el valor final del delivery.
           </p>
         </div>
 
@@ -555,7 +551,7 @@
       </section>
 
       <!-- ================================================
-           OBSERVACIONES
+           OBSERVACIONES GENERALES
            ================================================ -->
 
       <div class="form-field">
@@ -577,7 +573,7 @@
 
       <section
         class="cart-summary"
-        aria-label="Resumen del pedido"
+        aria-label="Resumen económico del pedido"
       >
         <div>
           <span>
@@ -660,7 +656,7 @@
   </aside>
 
   <!-- ======================================================
-       DIÁLOGO DE PEDIDO CREADO
+       DIÁLOGO DE PEDIDO REGISTRADO
        ====================================================== -->
 
   <dialog
@@ -696,7 +692,7 @@
         </span>
 
         <strong id="successTicket">
-          —
+          TG-000000-0000
         </strong>
       </div>
 
@@ -711,7 +707,7 @@
       </div>
 
       <div>
-        <span>
+        <span id="successTotalLabel">
           Total
         </span>
 
@@ -733,6 +729,14 @@
         </strong>
       </div>
     </section>
+
+    <p class="ticket-help">
+      Guarda el ticket
+      <strong id="successTicketReminder">
+        TG-000000-0000
+      </strong>
+      para identificar tu pedido.
+    </p>
 
     <p
       id="successDeliveryMessage"
@@ -760,7 +764,7 @@
   </dialog>
 
   <!-- ======================================================
-       CONSULTA DEL PEDIDO
+       DIÁLOGO DE SEGUIMIENTO
        ====================================================== -->
 
   <dialog
@@ -789,8 +793,9 @@
     </header>
 
     <p class="tracking-introduction">
-      Ingresa el código privado generado al confirmar
-      el pedido.
+      Ingresa el ticket generado al confirmar tu pedido.
+      La credencial privada de seguimiento se conserva
+      automáticamente en este dispositivo.
     </p>
 
     <form
@@ -799,18 +804,39 @@
       novalidate
     >
       <div class="form-field">
-        <label for="trackingTokenInput">
-          Código de seguimiento
+        <label for="trackingTicketInput">
+          Ticket del pedido
         </label>
 
         <input
-          id="trackingTokenInput"
-          name="trackingToken"
+          id="trackingTicketInput"
+          name="trackingTicket"
           type="text"
-          placeholder="Código privado del pedido"
+          maxlength="14"
+          placeholder="Ejemplo: TG-250716-1042"
           autocomplete="off"
+          autocapitalize="characters"
           spellcheck="false"
         >
+      </div>
+
+      <div
+        id="savedOrdersField"
+        class="form-field"
+        hidden
+      >
+        <label for="savedOrdersSelect">
+          Pedidos guardados en este dispositivo
+        </label>
+
+        <select
+          id="savedOrdersSelect"
+          name="savedOrder"
+        >
+          <option value="">
+            Selecciona un pedido
+          </option>
+        </select>
       </div>
 
       <p
@@ -885,6 +911,16 @@
           </strong>
         </div>
 
+        <div id="trackingAddressRow">
+          <span>
+            Dirección
+          </span>
+
+          <strong id="trackingAddress">
+            —
+          </strong>
+        </div>
+
         <div>
           <span>
             Productos
@@ -935,18 +971,26 @@
         por el restaurante.
       </p>
 
-      <section>
+      <section class="tracking-items-section">
         <h3>
-          Detalle
+          Detalle del pedido
         </h3>
 
         <div id="trackingItems"></div>
       </section>
+
+      <button
+        id="refreshTrackingButton"
+        class="secondary-action-button"
+        type="button"
+      >
+        Actualizar estado
+      </button>
     </section>
   </dialog>
 
   <!-- ======================================================
-       SUPABASE
+       SUPABASE Y APLICACIÓN
        ====================================================== -->
 
   <script
