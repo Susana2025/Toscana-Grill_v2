@@ -917,7 +917,7 @@ function renderMenuError(message) {
   }
 
   elements.menuContainer.innerHTML = `
-    <div class="menu-empty">
+    <div class="menu-empty-state">
       <strong>
         No se pudo cargar el menú
       </strong>
@@ -945,7 +945,7 @@ function renderMenu() {
 
   if (filteredProducts.length === 0) {
     elements.menuContainer.innerHTML = `
-      <div class="menu-empty">
+      <div class="menu-empty-state">
         <strong>
           No encontramos productos
         </strong>
@@ -962,6 +962,23 @@ function renderMenu() {
   const groupedProducts = groupProductsByCategory(
     filteredProducts
   );
+
+  const hasSelectedCategory =
+    state.selectedCategory !== "all";
+
+  if (hasSelectedCategory) {
+    elements.menuContainer.innerHTML = `
+      <section class="menu-category-section">
+        <div class="products-grid">
+          ${filteredProducts
+            .map(renderProductCard)
+            .join("")}
+        </div>
+      </section>
+    `;
+
+    return;
+  }
 
   elements.menuContainer.innerHTML =
     groupedProducts
@@ -1068,83 +1085,111 @@ function renderProductCard(product) {
 
   const quantity = cartItem?.quantity || 0;
 
-  const imageMarkup = product.imageUrl
+  const quantityIndicator =
+    quantity > 0
+      ? `
+        <span class="product-cart-quantity">
+          ${quantity}
+          ${quantity === 1 ? "agregado" : "agregados"}
+        </span>
+      `
+      : "";
+
+  const imageContent = product.imageUrl
     ? `
       <img
-        class="product-card-image"
         src="${escapeAttribute(product.imageUrl)}"
         alt="${escapeAttribute(product.name)}"
         loading="lazy"
         decoding="async"
         onerror="
-          const wrapper = this.closest('.product-card-image-wrapper');
           this.remove();
+          const container = this.closest('.product-image');
 
-          if (wrapper) {
-            wrapper.classList.add('product-card-image-empty');
-            wrapper.innerHTML = '<span aria-hidden=&quot;true&quot;>🔥</span>';
+          if (container) {
+            container.classList.add('product-image-error');
+
+            const fallback =
+              container.querySelector('.product-image-fallback');
+
+            if (fallback) {
+              fallback.hidden = false;
+            }
           }
         "
       >
+
+      <div
+        class="product-image-fallback"
+        aria-hidden="true"
+        hidden
+      >
+        <span class="product-flame">🔥</span>
+
+        <small>
+          Toscana Grill
+        </small>
+      </div>
     `
     : `
-      <span aria-hidden="true">🔥</span>
-    `;
+      <div
+        class="product-image-fallback"
+        aria-hidden="true"
+      >
+        <span class="product-flame">🔥</span>
 
-  const imageWrapperClass = product.imageUrl
-    ? "product-card-image-wrapper"
-    : "product-card-image-wrapper product-card-image-empty";
+        <small>
+          Toscana Grill
+        </small>
+      </div>
+    `;
 
   return `
     <article class="product-card">
-      <div class="${imageWrapperClass}">
-        ${imageMarkup}
+      <div class="product-image">
+        ${imageContent}
       </div>
 
       <div class="product-card-content">
-        <span class="product-card-category">
-          ${escapeHtml(product.categoryName)}
-        </span>
+        <div class="product-card-information">
+          <p class="product-category">
+            ${escapeHtml(product.categoryName)}
+          </p>
 
-        <h3>
-          ${escapeHtml(product.name)}
-        </h3>
-
-        ${
-          product.description
-            ? `
-              <p>
-                ${escapeHtml(product.description)}
-              </p>
-            `
-            : ""
-        }
-      </div>
-
-      <div class="product-card-footer">
-        <div>
-          <strong>
-            ${formatMoney(product.price)}
-          </strong>
+          <h4>
+            ${escapeHtml(product.name)}
+          </h4>
 
           ${
-            quantity > 0
+            product.description
               ? `
-                <small class="product-cart-quantity">
-                  ${quantity} en el carrito
-                </small>
+                <p class="product-description">
+                  ${escapeHtml(product.description)}
+                </p>
               `
               : ""
           }
         </div>
 
-        <button
-          type="button"
-          data-add-product="${product.id}"
-          aria-label="Agregar ${escapeAttribute(product.name)}"
-        >
-          Agregar
-        </button>
+        <div class="product-card-footer">
+          <div class="product-price-wrapper">
+            <strong class="product-price">
+              ${formatMoney(product.price)}
+            </strong>
+
+            ${quantityIndicator}
+          </div>
+
+          <button
+            class="add-product-button"
+            type="button"
+            data-add-product="${product.id}"
+            aria-label="Agregar ${escapeAttribute(product.name)}"
+          >
+            <span aria-hidden="true">+</span>
+            Agregar
+          </button>
+        </div>
       </div>
     </article>
   `;
